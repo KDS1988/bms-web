@@ -111,7 +111,17 @@ export class BmsSession extends DurableObject {
 
   /** Сообщает всем, что данные в BMS изменились — клиенты перезагрузят доску. */
   async bumpBoard() {
-    await this.ctx.storage.put('bv', ((await this.ctx.storage.get('bv')) || 0) + 1);
+    await this.ctx.storage.put({ bv: ((await this.ctx.storage.get('bv')) || 0) + 1, lw: Date.now() });
+  }
+
+  // ---- снимки доски (сжатый JSON): отдаём мгновенно, обновляем в фоне
+  async snapGet(key) {
+    const [v, lw] = await Promise.all([this.ctx.storage.get('snap:' + key), this.ctx.storage.get('lw')]);
+    return v ? { at: v.at, data: v.data, lw: lw || 0 } : { lw: lw || 0 };
+  }
+
+  async snapPut(key, at, data) {
+    await this.ctx.storage.put('snap:' + key, { at, data });
   }
 }
 

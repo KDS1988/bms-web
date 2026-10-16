@@ -21,3 +21,6 @@ tag = "v1"
 new_sqlite_classes = ["BmsSession"]
 
 # Секрет задаётся командой:  npx wrangler secret put SESSION_SECRET
+
+[triggers]
+crons = ["*/5 * * * *"]

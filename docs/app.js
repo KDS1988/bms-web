@@ -104,14 +104,18 @@
     $('rangeBox').hidden = t === 'admin';
     reload();
   }
+  let refreshNow = false;
   async function reload() {
     banner('');
     try {
       if (S.tab === 'admin') return await loadAdmin();
       $('reload').disabled = true; $('reload').textContent = 'Загрузка…';
-      if (S.tab === 'board') await loadBoard();
-      if (S.tab === 'staff') { S.staff = await api('/api/staff', { query: range() }); renderStaff(); }
-      if (S.tab === 'rates') { S.rates = await api('/api/rates/missing', { query: range() }); renderRates(); }
+      if (S.tab === 'board') {
+        if (!S.board) $('boardOut').replaceChildren(h('p', { class: 'muted' }, 'Загружаю ' + MONTHS[Number(S.month.slice(5)) - 1].toLowerCase() + '…'));
+        await loadBoard(false, refreshNow); refreshNow = false;
+      }
+      if (S.tab === 'staff') { if (!S.staff) $('staffOut').replaceChildren(h('p', { class: 'muted' }, 'Загружаю график…')); const m = S.month, d = await api('/api/staff', { query: range() }); if (m === S.month) { S.staff = d; renderStaff(); } }
+      if (S.tab === 'rates') { if (!S.rates) $('ratesOut').replaceChildren(h('p', { class: 'muted' }, 'Ищу назначения без ставки…')); const m = S.month, d = await api('/api/rates/missing', { query: range() }); if (m === S.month) { S.rates = d; renderRates(); } }
     } catch (e) {
       banner(e.message);
       if (e.code === 'bms_login' && S.user.role === 'admin') showTab('admin');
@@ -304,11 +308,21 @@
     }
     return true;
   }
-  async function loadBoard(silent) {
-    const q = { ...range() }; if (S.all) q.all = '1';
+  let boardReq = 0, staleRetries = 0;
+  async function loadBoard(silent, fresh) {
+    const my = ++boardReq, month = S.month, all = S.all;
+    const q = { ...range() }; if (all) q.all = '1'; if (fresh) q.fresh = '1';
     const data = await api('/api/board', { query: q });
+    if (my !== boardReq || month !== S.month || all !== S.all) return;   // пока ждали — переключили месяц: старый ответ выбрасываем
     lastBoardAt = Date.now();
     S.board = data; renderBoard();
+    if (data.generatedAt) {
+      const t = new Date(data.generatedAt).toLocaleTimeString('ru-RU');
+      $('live').title = `Общая доска. Данные BMS от ${t}` + (data.meta ? ` · ${data.meta.items} записей, ${(data.meta.fetchMs / 1000).toFixed(1)} с на загрузку из BMS` : '');
+    }
+    // сервер отдал снимок и обновляет его в фоне — через пару секунд заберём свежий
+    if (data.stale && staleRetries < 6) { staleRetries++; setTimeout(() => { if (month === S.month && S.tab === 'board' && !editingNow()) loadBoard(true); }, 4000); }
+    else if (!data.stale) staleRetries = 0;
     if (!silent) poll(true);
   }
   function renderBoard() {
@@ -401,7 +415,7 @@
     $('mTitle').textContent = `Готово: отправлено ${cnt('ok') + cnt('warn')}, пропущено ${cnt('skip')}, ошибок ${cnt('err')}`;
     $('mBody').replaceChildren(...report.map(([t, txt]) => h('div', { class: 'rep ' + t }, ({ ok: '✓ ', warn: '⚠ ', skip: '• ', err: '✗ ' })[t], txt)));
     $('modal').hidden = false;
-    candCache.clear(); await loadBoard(true); poll('full');
+    candCache.clear(); await loadBoard(true, true); poll('full');
   }
   function clearDraft() {
     if (!confirm('Удалить весь общий черновик? Он очистится у всех участников.')) return;
@@ -476,7 +490,7 @@
   }
   function bind() {
     document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
-    $('reload').onclick = () => { candCache.clear(); reload(); };
+    $('reload').onclick = () => { candCache.clear(); refreshNow = true; reload(); };
     $('prev').onclick = () => setMonth(monthShift(S.month, -1)); $('next').onclick = () => setMonth(monthShift(S.month, 1));
     $('logout').onclick = logout; $('mClose').onclick = closeModal;
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });

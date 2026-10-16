@@ -98,7 +98,31 @@ async function loadSchedule(client, lines, from, to) {
   return entriesByLine;
 }
 
-async function route(req, env, url) {
+async function gzip(str) {
+  return new Uint8Array(await new Response(new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer());
+}
+async function gunzip(u8) {
+  return new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream('gzip'))).text();
+}
+
+// Снимок месяца: один запрос в BMS на всех, остальные получают готовое из хранилища.
+const inflightBoard = new Map();
+function buildFresh(env, client, key, from, to, all) {
+  if (inflightBoard.has(key)) return inflightBoard.get(key);
+  const p = (async () => {
+    const t0 = Date.now();
+    const items = await fetchAssignments(client, from, to);
+    const board = buildBoard(items, { all });
+    board.meta = { items: items.length, fetchMs: Date.now() - t0 };
+    board.generatedAt = Date.now();
+    await sessionStub(env).snapPut(key, board.generatedAt, await gzip(JSON.stringify(board)));
+    return board;
+  })().finally(() => inflightBoard.delete(key));
+  inflightBoard.set(key, p);
+  return p;
+}
+
+async function route(req, env, url, ctx) {
   const path = url.pathname;
 
   // ---- вход
@@ -147,7 +171,17 @@ async function route(req, env, url) {
   if (path === '/api/board') {
     need('viewer'); checkRange(from, to);
     const all = url.searchParams.get('all') === '1';
-    return cached(`board|${from}|${to}|${all}`, 15_000, async () => buildBoard(await fetchAssignments(client, from, to), { all }));
+    const key = `board|${from}|${to}|${all}`;
+    if (url.searchParams.get('fresh') !== '1') {
+      const snap = await sessionStub(env).snapGet(key);
+      if (snap.data) {
+        const board = JSON.parse(await gunzip(snap.data));
+        const stale = snap.at < snap.lw || Date.now() - snap.at > 20_000;   // после записи в BMS или старше 20 с
+        if (stale) ctx.waitUntil(buildFresh(env, client, key, from, to, all).catch(e => console.error('refresh', String(e))));
+        return { ...board, stale };
+      }
+    }
+    return { ...(await buildFresh(env, client, key, from, to, all)), stale: false };
   }
 
   if (path === '/api/staff') {
@@ -258,13 +292,13 @@ async function route(req, env, url) {
 }
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const cors = corsHeaders(req, env);
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(req.url);
     if (url.pathname === '/health') return json({ ok: true }, 200, cors);
     try {
-      return json(await route(req, env, url), 200, cors);
+      return json(await route(req, env, url, ctx), 200, cors);
     } catch (e) {
       if (e instanceof HttpError) return json({ error: e.message }, e.status, cors);
       const msg = String(e && e.message || e);
@@ -273,6 +307,20 @@ export default {
       }
       console.error(msg);
       return json({ error: 'Ошибка BMS: ' + msg.slice(0, 300) }, 502, cors);
+    }
+  },
+
+  // раз в 5 минут держим «тёплыми» снимки текущего и следующего месяца — первый заход не ждёт BMS
+  async scheduled(event, env, ctx) {
+    const client = makeClient(env);
+    const now = new Date();
+    for (let i = 0; i < 2; i++) {
+      const y = now.getUTCFullYear(), m = now.getUTCMonth() + i;
+      const d = new Date(Date.UTC(y, m, 1));
+      const ym = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+      const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+      const from = `${ym}-01`, to = `${ym}-${String(last).padStart(2, '0')}`;
+      ctx.waitUntil(buildFresh(env, client, `board|${from}|${to}|false`, from, to, false).catch(e => console.error('cron', String(e))));
     }
   },
 };
