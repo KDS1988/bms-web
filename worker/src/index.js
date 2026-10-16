@@ -184,6 +184,19 @@ async function route(req, env, url, ctx) {
     return { ...(await buildFresh(env, client, key, from, to, all)), stale: false };
   }
 
+  if (path === '/api/order') {
+    if (req.method === 'POST') {
+      need('editor');
+      const b = await body(req);
+      if (!ISO.test(b.date || '') || !Array.isArray(b.ids)) throw new HttpError(400, 'Нужны date и ids');
+      const ids = b.ids.map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 300);
+      await sessionStub(env).orderSet(b.date, ids);
+      return { ok: true };
+    }
+    need('viewer'); checkRange(from, to);
+    return { orders: await sessionStub(env).orderGet(from, to) };
+  }
+
   if (path === '/api/staff') {
     need('viewer'); checkRange(from, to);
     return cached(`staff|${from}|${to}`, 300_000, async () => {

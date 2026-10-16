@@ -113,6 +113,22 @@ export class BmsSession extends DurableObject {
     await this.ctx.storage.put({ bv: ((await this.ctx.storage.get('bv')) || 0) + 1, lw: Date.now() });
   }
 
+  // ---- порядок блоков внутри дня (общий для всех): { 'ГГГГ-ММ-ДД': [eventServiceId…] }
+  async orderGet(from, to) {
+    const all = (await this.ctx.storage.get('order')) || {};
+    const out = {};
+    for (const d of Object.keys(all)) if (d >= from && d <= to) out[d] = all[d];
+    return out;
+  }
+
+  async orderSet(date, ids) {
+    const all = (await this.ctx.storage.get('order')) || {};
+    if (ids.length) all[date] = ids; else delete all[date];
+    const keys = Object.keys(all).sort();
+    while (keys.length > 500) delete all[keys.shift()];       // старые даты не копим
+    await this.ctx.storage.put({ order: all, lw: Date.now(), bv: ((await this.ctx.storage.get('bv')) || 0) + 1 });
+  }
+
   // ---- снимки доски (сжатый JSON): отдаём мгновенно, обновляем в фоне
   async snapGet(key) {
     const [v, lw] = await Promise.all([this.ctx.storage.get('snap:' + key), this.ctx.storage.get('lw')]);

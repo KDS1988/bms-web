@@ -43,7 +43,7 @@
     return rows;
   }
 
-  let dv = 1; const dstore = {};
+  let dv = 1; const dstore = {}; const ostore = {};
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/board') {
@@ -62,6 +62,7 @@
     if (path === '/api/employees') {
       return { candidates: NAMES.map((n, i) => ({ id: i + 1, name: n, state: ['free', 'free', 'busy', 'off'][i % 4], busyWith: i % 4 === 2 ? ['КХЛ Динамо — ЦСКА 19:00'] : [], category: 'A' })).sort((a, b) => ({ free: 0, busy: 1, off: 2 }[a.state] - { free: 0, busy: 1, off: 2 }[b.state])) };
     }
+    if (path === '/api/order') { if ((opts.method || 'GET') === 'POST') { ostore[opts.body.date] = opts.body.ids; return { ok: true }; } return { orders: ostore }; }
     if (path === '/api/draft') {
       if ((opts.method || 'GET') === 'GET') return q && q.since !== undefined && Number(q.since) === dv ? { version: dv, boardVersion: 0, unchanged: true } : { version: dv, boardVersion: 0, drafts: dstore };
       dstore[opts.body.eventServiceId + ':' + opts.body.lineId] = { ...opts.body, by: 'Коллега' }; dv++; return { ok: true };

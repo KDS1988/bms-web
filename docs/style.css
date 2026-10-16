@@ -126,10 +126,29 @@ tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 
 .addbtn{font-size:10px;padding:0 5px;border:1px dashed var(--line);background:none;color:var(--mut);border-radius:4px;cursor:pointer;white-space:nowrap}
 .addbtn:hover,.addbtn.on{border-color:var(--acc);color:var(--acc)}
-.extramenu{position:fixed;z-index:50;background:var(--bg2,#1c2230);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:180px;box-shadow:0 6px 24px #0008}
+.extramenu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:180px;box-shadow:0 6px 24px #0008}
 .extramenu label{display:block;padding:3px 0;cursor:pointer}
 .slot{flex-wrap:wrap}
 .slot .addbtn{order:3;flex:0 0 auto;margin:1px 0 2px;max-width:100%;overflow:hidden;text-overflow:ellipsis}
 .slot::after{content:'';order:2;flex-basis:100%;height:0;display:none}
 .slot:has(.addbtn)::after{display:block}
 .slot .cellin{flex:1 1 90px;min-width:0}
+
+/* блочный вид */
+.blockwrap{display:block}
+.bday{padding:6px 10px;margin:10px 0 6px;background:var(--panel);border-radius:6px;cursor:pointer;font-weight:600}
+.blocks{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:8px}
+.bcard{width:270px;border:1px solid var(--line);border-radius:8px;padding:0 0 6px;background:var(--panel)}
+.bcard.cancelled{opacity:.55}
+.bcard.dragging{opacity:.4}
+.bcard.over{outline:2px dashed var(--acc)}
+.bhead{padding:6px 8px;border-bottom:1px solid var(--line);cursor:grab}
+.bhead .t{font-weight:600}
+.bhead .m{color:var(--mut);font-size:12px}
+.bhead .stat{float:right}
+.brow{display:flex;align-items:flex-start;gap:6px;padding:1px 8px}
+.brow .bl{flex:0 0 52px;color:var(--mut);font-size:12px;padding-top:4px}
+.brow .slot{flex:1;min-width:0}
+.bcard .addbtn:not(.on){display:none}
+.bcard .brow:hover .addbtn:not(.on),.bcard .brow:focus-within .addbtn:not(.on){display:inline-block}
+.bday{border:1px solid var(--line)}

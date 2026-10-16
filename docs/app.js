@@ -8,7 +8,7 @@
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const $ = id => document.getElementById(id);
-  const S = { token: null, user: null, tab: 'board', board: null, staff: null, rates: null, month: null, all: false };
+  const S = { view: (function () { try { return localStorage.getItem('bms_view') || 'table'; } catch (e) { return 'table'; } })(), order: {}, token: null, user: null, tab: 'board', board: null, staff: null, rates: null, month: null, all: false };
 
   // ---------- утилиты
   function h(tag, attrs, ...kids) {
@@ -380,6 +380,8 @@
     const data = await api('/api/board', { query: q });
     if (my !== boardReq || month !== S.month || all !== S.all) return;   // пока ждали — переключили месяц: старый ответ выбрасываем
     lastBoardAt = Date.now();
+    try { S.order = (await api('/api/order', { query: { ...range() } })).orders || {}; } catch (e) { /* порядок необязателен */ }
+    if (my !== boardReq || month !== S.month || all !== S.all) return;
     S.board = data; renderBoard();
     if (data.generatedAt) {
       const t = new Date(data.generatedAt).toLocaleTimeString('ru-RU');
@@ -390,7 +392,92 @@
     else if (!data.stale) staleRetries = 0;
     if (!silent) poll(true);
   }
+
+  // ---------- блочный вид: карточки мероприятий внутри дня, порядок можно менять перетаскиванием
+  function orderedRows(date, rows) {
+    const ord = S.order[date]; if (!ord || !ord.length) return rows;
+    const pos = new Map(ord.map((id, i) => [id, i]));
+    return rows.map((r, i) => [r, i]).sort((a, b) => {
+      const pa = pos.has(a[0].eventServiceId) ? pos.get(a[0].eventServiceId) : 1e6 + a[1];
+      const pb = pos.has(b[0].eventServiceId) ? pos.get(b[0].eventServiceId) : 1e6 + b[1];
+      return pa - pb;
+    }).map(x => x[0]);
+  }
+  let dragId = null, dragDate = null;
+  async function saveOrder(date, ids) {
+    S.order[date] = ids;
+    try { await api('/api/order', { method: 'POST', body: { date, ids } }); }
+    catch (e) { toast('Не удалось сохранить порядок: ' + e.message, true); }
+  }
+  function blockCard(r, f) {
+    const camIdx = {};
+    const lines = [];
+    const sameCon = k => r.contractor && k !== 'vr' && r.slots[k].length && r.slots[k].every(s => s.employee && s.employee.name === r.contractor.name && !draft[keyOf(r, s)]);
+    let conShown = false;
+    for (const [k, label] of COLS) {
+      const sl = r.slots[k]; if (!sl.length) continue;
+      if (sameCon(k)) {
+        if (!conShown) { conShown = true; lines.push(h('div', { class: 'brow' }, h('span', { class: 'bl' }, 'Подрядчик'), h('div', { class: 'slot' }, h('span', { class: 'chip contractor' }, r.contractor.name)))); }
+        continue;
+      }
+      sl.forEach((s, i) => lines.push(h('div', { class: 'brow' }, h('span', { class: 'bl' }, sl.length > 1 ? label + ' ' + (i + 1) : label), slotNode(r, s))));
+    }
+    const full = r.stats.filled >= r.stats.total;
+    const canDrag = canEdit();
+    const head = h('div', { class: 'bhead', draggable: canDrag ? 'true' : null, title: canDrag ? 'Перетащите, чтобы поменять порядок внутри даты' : '' },
+      h('div', { class: 't' }, (canDrag ? '⠿ ' : '') + (r.title || '—')),
+      h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
+      h('div', { class: 'ids' }, 'мер. ' + r.eventId + ' · усл. ' + r.eventServiceId, h('span', { class: 'stat' + (full ? ' full' : '') }, ` ${r.stats.filled}/${r.stats.total}`)));
+    const card = h('div', { class: 'bcard' + (r.cancelled ? ' cancelled' : ''), 'data-es': r.eventServiceId, 'data-date': r.date }, head, ...lines);
+    if (canDrag) {
+      head.addEventListener('dragstart', ev => { dragId = r.eventServiceId; dragDate = r.date; card.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', String(dragId)); } catch (e) {} });
+      head.addEventListener('dragend', () => { card.classList.remove('dragging'); document.querySelectorAll('.bcard.over').forEach(c => c.classList.remove('over')); dragId = null; });
+      card.addEventListener('dragover', ev => { if (dragId && dragDate === r.date && dragId !== r.eventServiceId) { ev.preventDefault(); card.classList.add('over'); } });
+      card.addEventListener('dragleave', () => card.classList.remove('over'));
+      card.addEventListener('drop', ev => {
+        ev.preventDefault(); card.classList.remove('over');
+        if (!dragId || dragDate !== r.date || dragId === r.eventServiceId) return;
+        const cont = card.parentNode;
+        const cards = [...cont.children];
+        const moving = cards.find(c => Number(c.dataset.es) === dragId); if (!moving) return;
+        const rect = card.getBoundingClientRect();
+        const before = ev.clientX < rect.left + rect.width / 2;
+        cont.insertBefore(moving, before ? card : card.nextSibling);
+        saveOrder(r.date, [...cont.children].map(c => Number(c.dataset.es)));
+      });
+    }
+    return card;
+  }
+  function renderBlocks() {
+    hidePop();
+    const wy = window.scrollY, box = $('boardOut');
+    const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked };
+    const sel = $('league'), cur = sel.value;
+    if (sel.options.length - 1 !== S.board.leagues.length) {
+      sel.replaceChildren(h('option', { value: '' }, 'Все лиги'), ...S.board.leagues.map(l => h('option', { value: l }, l)));
+      sel.value = cur;
+    }
+    const out = []; let shown = 0; const stale = [];
+    for (const day of S.board.days) {
+      const rows = orderedRows(day.date, day.rows.filter(r => rowMatches(r, f)));
+      if (!rows.length) continue;
+      shown += rows.length;
+      const isCol = collapsed.has(day.date);
+      out.push(h('div', { class: 'dayrow bday' + (isCol ? ' collapsed' : ''), title: isCol ? 'Развернуть день' : 'Свернуть день',
+        onclick: () => { if (collapsed.has(day.date)) collapsed.delete(day.date); else collapsed.add(day.date); saveCollapsed(); renderBoard(); } },
+      h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length));
+      if (isCol) continue;
+      for (const r of rows) for (const k of Object.keys(r.slots)) for (const s of r.slots[k]) if (draft[keyOf(r, s)] && isStale(draft[keyOf(r, s)], s)) stale.push(keyOf(r, s));
+      out.push(h('div', { class: 'blocks' }, ...rows.map(r => blockCard(r, f))));
+    }
+    box.replaceChildren(shown ? h('div', { class: 'blockwrap' }, ...out) : h('p', { class: 'muted' }, 'Ничего не найдено за выбранный месяц.'));
+    window.scrollTo(0, wy);
+    if (stale.length && canEdit()) dropDrafts([...new Set(stale)]);
+    updateBar();
+  }
+
   function renderBoard() {
+    if (S.view === 'blocks') return renderBlocks();
     hidePop();
     const wrapOld = document.querySelector('#boardOut .tablewrap');
     const sc = wrapOld ? [wrapOld.scrollLeft, wrapOld.scrollTop] : null, wy = window.scrollY;
@@ -603,6 +690,9 @@
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
     $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = null; reload(); });
     ['sq', 'sline'].forEach(id => $(id).addEventListener('input', () => S.staff && renderStaff()));
+    const setView = () => { $('viewToggle').textContent = S.view === 'blocks' ? '☷ Таблица' : '▦ Блоки'; };
+    $('viewToggle').onclick = () => { S.view = S.view === 'blocks' ? 'table' : 'blocks'; try { localStorage.setItem('bms_view', S.view); } catch (e) {} setView(); if (S.board) renderBoard(); };
+    setView();
     $('collapseAll').onclick = () => { (S.board ? S.board.days : []).forEach(d => collapsed.add(d.date)); saveCollapsed(); if (S.board) renderBoard(); };
     $('expandAll').onclick = () => { collapsed.clear(); saveCollapsed(); if (S.board) renderBoard(); };
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
