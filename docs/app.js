@@ -210,6 +210,12 @@
     if (draft[key]) {
       const names = ids.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || String(i));
       putDraft({ ...draft[key], additionalIds: ids, additionalNames: names });
+    } else if (slot.employee && slot.assignmentId) {
+      // уже назначен: допуслуги в BMS меняются только пересозданием — ставим «замену» того же человека с допами
+      const names = ids.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || String(i));
+      putDraft({ eventServiceId: row.eventServiceId, lineId: slot.lineId, roleId: slot.roleId, roleName: slot.roleName, date: row.date, title: row.title,
+        employeeId: slot.employee.id, employeeName: slot.employee.name, state: 'free', replaceAssignmentId: slot.assignmentId, prevName: slot.employee.name,
+        additionalIds: ids, additionalNames: names });
     } else extras.set(key, ids);
   }
   function openExtraMenu(btn, row, slot, rerender) {
@@ -309,7 +315,7 @@
         if (slot.hasRate === false) kids.push(h('span', { class: 'warn', title: 'Нет ставки — доначислите на вкладке «Ставки»' }, '⚠'));
       }
       const ex = extraIds(key);
-      if (editable && !isContractor && row.additionalServices && row.additionalServices.length && (d || !slot.employee))
+      if (editable && !isContractor && row.additionalServices && row.additionalServices.length)
         kids.push(h('button', { class: 'addbtn' + (ex.length ? ' on' : ''), title: 'Доп.услуги к этому юниту',
           onclick: e => { e.stopPropagation(); openExtraMenu(e.currentTarget, row, slot, render); } },
         ex.length ? ex.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || i).join('+') : '＋доп'));
