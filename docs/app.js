@@ -301,6 +301,9 @@
   }
 
   // ---------- доска
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(sessionStorage.getItem('bms_collapsed') || '[]')); } catch (e) { /* ok */ }
+  const saveCollapsed = () => { try { sessionStorage.setItem('bms_collapsed', JSON.stringify([...collapsed])); } catch (e) { /* ok */ } };
   function rowMatches(r, f) {
     if (f.league && r.league !== f.league) return false;
     if (f.gaps && r.stats.filled >= r.stats.total) return false;
@@ -344,7 +347,11 @@
     for (const day of S.board.days) {
       const rows = day.rows.filter(r => rowMatches(r, f));
       if (!rows.length) continue;
-      tbody.append(h('tr', { class: 'dayrow' }, h('td', { colspan: used.length + 2 }, fmtDay(day.date), ' · ', rows.length)));
+      const isCol = collapsed.has(day.date);
+      tbody.append(h('tr', { class: 'dayrow' + (isCol ? ' collapsed' : ''), title: isCol ? 'Развернуть день' : 'Свернуть день',
+        onclick: () => { if (collapsed.has(day.date)) collapsed.delete(day.date); else collapsed.add(day.date); saveCollapsed(); renderBoard(); } },
+      h('td', { colspan: used.length + 2 }, h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length)));
+      if (isCol) { shown += rows.length; continue; }
       for (const r of rows) {
         shown++;
         for (const k of Object.keys(r.slots)) for (const s of r.slots[k]) if (draft[keyOf(r, s)] && isStale(draft[keyOf(r, s)], s)) stale.push(keyOf(r, s));
@@ -353,6 +360,7 @@
           h('td', { class: 'ev' },
             h('div', { class: 't' }, r.title || '—'),
             h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
+            h('div', { class: 'ids' }, h('span', { title: 'ID мероприятия' }, 'мер. ' + r.eventId), ' · ', h('span', { title: 'ID услуги' }, 'усл. ' + r.eventServiceId)),
             r.contractor ? h('span', { class: 'chip contractor' }, 'подрядчик ' + r.contractor.name) : null),
           ...used.map(([k]) => h('td', { class: 'g' }, ...r.slots[k].map(s => slotNode(r, s)))),
           h('td', { class: 'stat' + (full ? ' full' : '') }, `${r.stats.filled}/${r.stats.total}`, r.stats.declined ? ` · отказ ${r.stats.declined}` : '')));
@@ -500,6 +508,8 @@
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
     $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = null; reload(); });
     ['sq', 'sline'].forEach(id => $(id).addEventListener('input', () => S.staff && renderStaff()));
+    $('collapseAll').onclick = () => { (S.board ? S.board.days : []).forEach(d => collapsed.add(d.date)); saveCollapsed(); if (S.board) renderBoard(); };
+    $('expandAll').onclick = () => { collapsed.clear(); saveCollapsed(); if (S.board) renderBoard(); };
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
     document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
     window.addEventListener('resize', fitGrid);

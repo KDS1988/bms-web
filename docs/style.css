@@ -118,3 +118,8 @@ tr.dayrow td{z-index:1}
 .staff th.d{font-size:11px;line-height:1.15;white-space:normal}
 .staff .cell{min-height:18px;padding:2px 0;font-size:10px;border-radius:4px}
 .staff td{height:24px}
+
+tr.dayrow{cursor:pointer;user-select:none}
+tr.dayrow:hover td{background:color-mix(in srgb,var(--acc) 12%,var(--bg))}
+tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
+.ids{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut);user-select:text;margin-top:1px}
