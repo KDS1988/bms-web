@@ -7,9 +7,8 @@
  * склеивает параллельные обновления в одно.
  */
 import { DurableObject } from 'cloudflare:workers';
+import { bmsFetch } from './bms.js';
 
-const BASE = 'https://bms-api.vsporteru.ru/api/v1/bms';
-const H = { origin: 'https://bms.vsporteru.ru', referer: 'https://bms.vsporteru.ru/' };
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
 
 function jwtExpMs(jwt) {
@@ -30,9 +29,9 @@ export class BmsSession extends DurableObject {
   async #refresh() {
     const s = await this.#load();
     if (!s || !s.refreshToken) throw new Error(LOGIN_REQUIRED);
-    const r = await fetch(`${BASE}/users/token/refresh`, {
+    const r = await bmsFetch(null, 'users/token/refresh', {
       method: 'POST',
-      headers: { ...H, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ refresh_token: s.refreshToken }),
     });
     if (!r.ok) throw new Error(`${LOGIN_REQUIRED}: refresh ${r.status}`);
@@ -60,16 +59,16 @@ export class BmsSession extends DurableObject {
   }
 
   async requestOtp(phone) {
-    const r = await fetch(`${BASE}/notifications/user/send_otp?phone_number=${encodeURIComponent(phone)}`, {
-      method: 'POST', headers: H,
+    const r = await bmsFetch(null, `notifications/user/send_otp?phone_number=${encodeURIComponent(phone)}`, {
+      method: 'POST',
     });
     return { ok: r.ok, status: r.status, message: r.ok ? '' : (await r.text()).slice(0, 200) };
   }
 
   async login(phone, code, byEmail) {
-    const r = await fetch(`${BASE}/users/token`, {
+    const r = await bmsFetch(null, 'users/token', {
       method: 'POST',
-      headers: { ...H, 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ phone_number: phone, otp_code: code }),
     });
     if (!r.ok) return { ok: false, message: (await r.text()).slice(0, 200) };

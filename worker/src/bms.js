@@ -4,12 +4,33 @@
  * Все запросы к BMS ходят только отсюда.
  */
 
-export const BMS_BASE = 'https://bms-api.vsporteru.ru/api/v1/bms';
-const BMS_HEADERS = {
-  accept: 'application/json, text/plain, */*',
-  origin: 'https://bms.vsporteru.ru',
-  referer: 'https://bms.vsporteru.ru/',
-};
+// BMS жил на двух доменах (vsporteru.ru и vsporte.ru): пробуем по очереди и запоминаем рабочий
+export const BMS_HOSTS = [
+  { api: 'https://bms-api.vsporteru.ru/api/v1/bms', origin: 'https://bms.vsporteru.ru' },
+  { api: 'https://bms-api.vsporte.ru/api/v1/bms', origin: 'https://bms.vsporte.ru' },
+];
+let hostIdx = 0;
+const ACCEPT = 'application/json, text/plain, */*';
+
+/** fetch к BMS по относительному пути; при сетевом сбое или 52x/530 пробует другой домен. */
+export async function bmsFetch(fetchImpl, path, init = {}) {
+  const f = fetchImpl || ((...a) => globalThis.fetch(...a));
+  let lastErr, lastResp;
+  for (let i = 0; i < BMS_HOSTS.length; i++) {
+    const idx = (hostIdx + i) % BMS_HOSTS.length;
+    const h = BMS_HOSTS[idx];
+    try {
+      const resp = await f(`${h.api}/${path}`, {
+        ...init, headers: { accept: ACCEPT, origin: h.origin, referer: h.origin + '/', ...(init.headers || {}) },
+      });
+      if (resp.status >= 520 && resp.status <= 530 && i < BMS_HOSTS.length - 1) { lastResp = resp; continue; }
+      hostIdx = idx;
+      return resp;
+    } catch (e) { lastErr = e; }
+  }
+  if (lastResp) return lastResp;
+  throw lastErr;
+}
 
 // ВР: допуслуги из справочника (БК — графика бродкастер, рек — врезка рекламы) и фикс. логистика
 export const VR_LINE_NAME = 'Выпускающий режиссер';
@@ -40,7 +61,7 @@ export class BmsClient {
     const qs = params
       ? '?' + Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
       : '';
-    const url = `${BMS_BASE}/${path}${qs}`;
+    const rel = `${path}${qs}`;
     let force = false;
     let lastErr;
 
@@ -48,10 +69,9 @@ export class BmsClient {
       let resp;
       try {
         const token = await this.getToken(force);
-        resp = await this.fetch(url, {
+        resp = await bmsFetch(this.fetch, rel, {
           method,
           headers: {
-            ...BMS_HEADERS,
             authorization: `Bearer ${token}`,
             ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
           },

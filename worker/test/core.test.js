@@ -228,3 +228,13 @@ test('изменение допов у назначенного: PUT назна�
   assert.deepEqual(calls[3][1].additional_service_rate_list, [40]);
   assert.equal(calls[3][1].line_rate_id, 72);
 });
+
+test('BMS: при сетевом сбое пробуем запасной домен и запоминаем его', async () => {
+  const urls = [];
+  const f = async url => { urls.push(url); if (url.includes('vsporteru.ru')) throw new Error('dns'); return new Response('{"ok":1}', { status: 200 }); };
+  const c = new BmsClient(async () => 't', f);
+  assert.deepEqual(await c.get('x'), { ok: 1 });
+  assert.ok(urls.at(-1).startsWith('https://bms-api.vsporte.ru/'));
+  urls.length = 0; await c.get('y');
+  assert.equal(urls.length, 1);              // дальше сразу идём на рабочий домен
+});
