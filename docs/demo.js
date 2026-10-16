@@ -24,7 +24,7 @@
             const rate = has ? rnd() > 0.1 : null;
             total++; if (has) filled++; if (st === 'appointed') acc++; if (st === 'declined') dec++; if (has && !rate) noRate++;
             slots[g].push({
-              lineId: id * 10 + total, roleId: GROUPS.indexOf(g) + 1, roleName: ROLES[g], badges: g === 'gfx' && rnd() > .5 ? ['GTZp'] : [],
+              lineId: id * 10 + total, assignmentId: has ? id * 100 + total : null, roleId: GROUPS.indexOf(g) + 1, roleName: ROLES[g], badges: g === 'gfx' && rnd() > .5 ? ['GTZp'] : [],
               employee: has ? { id: 1 + Math.floor(rnd() * 9), name: NAMES[Math.floor(rnd() * NAMES.length)] } : null,
               status: st, hasRate: rate, logistics: g === 'vr' && has ? '📡 - Работает удаленно/не на площадке' : null,
             });
@@ -43,6 +43,7 @@
     return rows;
   }
 
+  let dv = 1; const dstore = {};
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/board') {
@@ -61,7 +62,12 @@
     if (path === '/api/employees') {
       return { candidates: NAMES.map((n, i) => ({ id: i + 1, name: n, state: ['free', 'free', 'busy', 'off'][i % 4], busyWith: i % 4 === 2 ? ['КХЛ Динамо — ЦСКА 19:00'] : [], category: 'A' })).sort((a, b) => ({ free: 0, busy: 1, off: 2 }[a.state] - { free: 0, busy: 1, off: 2 }[b.state])) };
     }
-    if (path === '/api/assign') return { assignmentId: 1, rate: 'ok' };
+    if (path === '/api/draft') {
+      if ((opts.method || 'GET') === 'GET') return q && q.since !== undefined && Number(q.since) === dv ? { version: dv, boardVersion: 0, unchanged: true } : { version: dv, boardVersion: 0, drafts: dstore };
+      dstore[opts.body.eventServiceId + ':' + opts.body.lineId] = { ...opts.body, by: 'Коллега' }; dv++; return { ok: true };
+    }
+    if (path === '/api/draft/delete') { (opts.body.all ? Object.keys(dstore) : opts.body.keys).forEach(k => delete dstore[k]); dv++; return { ok: true }; }
+    if (path === '/api/assign') { delete dstore[opts.body.eventServiceId + ':' + opts.body.lineId]; dv++; return { assignmentId: 1, rate: 'ok' }; }
     if (path === '/api/rates/missing') {
       const rows = makeRows(q.from, q.to), out = [];
       rows.forEach(r => GROUPS.forEach(g => r.slots[g].forEach(s => { if (s.employee && !s.hasRate) out.push({ date: r.date, title: r.title, role: s.roleName, employee: s.employee.name, eventServiceId: r.eventServiceId, lineId: s.lineId }); })));

@@ -87,4 +87,31 @@ export class BmsSession extends DurableObject {
     const s = await this.#load();
     return s ? { loggedIn: true, phone: s.phone || '', loginBy: s.loginBy || '', loginAt: s.loginAt || '' } : { loggedIn: false };
   }
+
+  // ---- общий черновик доски: его видят и меняют все участники
+  async drafts(since) {
+    const [v, bv] = await Promise.all([this.ctx.storage.get('dv'), this.ctx.storage.get('bv')]);
+    const version = v || 0, boardVersion = bv || 0;
+    if (since === version) return { version, boardVersion, unchanged: true };
+    return { version, boardVersion, drafts: (await this.ctx.storage.get('drafts')) || {} };
+  }
+
+  async draftSet(key, rec) {
+    const drafts = (await this.ctx.storage.get('drafts')) || {};
+    drafts[key] = rec;
+    await this.ctx.storage.put({ drafts, dv: ((await this.ctx.storage.get('dv')) || 0) + 1 });
+  }
+
+  async draftDelete(keys) {
+    const drafts = (await this.ctx.storage.get('drafts')) || {};
+    let changed = false;
+    for (const k of keys === '*' ? Object.keys(drafts) : keys) if (k in drafts) { delete drafts[k]; changed = true; }
+    if (changed) await this.ctx.storage.put({ drafts, dv: ((await this.ctx.storage.get('dv')) || 0) + 1 });
+  }
+
+  /** Сообщает всем, что данные в BMS изменились — клиенты перезагрузят доску. */
+  async bumpBoard() {
+    await this.ctx.storage.put('bv', ((await this.ctx.storage.get('bv')) || 0) + 1);
+  }
 }
+

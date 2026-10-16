@@ -83,3 +83,14 @@ td.ev .t{font-weight:600}td.ev .m{color:var(--mut);font-size:12px}
 .pop .opt.none{color:var(--mut);cursor:default}
 .rep{padding:4px 0;border-bottom:1px solid var(--line)}
 .rep.ok{color:var(--okt)}.rep.warn{color:var(--waitt)}.rep.err{color:var(--badt)}.rep.skip{color:var(--mut)}
+
+.months{display:flex;gap:2px;flex-wrap:wrap}
+.months button{background:none;border:0;border-radius:6px;padding:5px 9px;color:var(--mut)}
+.months button.on{background:var(--acc);color:#fff}
+.months button.cur{font-weight:700;color:var(--txt)}
+.months button.on.cur{color:#fff}
+.live{font-size:12px;color:var(--okt);margin-left:6px}.live.off{color:var(--badt)}
+.slot .chip.editable{cursor:pointer}
+.slot .chip.editable:hover{outline:1px dashed var(--acc)}
+.cellin.repl{background:var(--bad);color:var(--badt)}
+.cellin.others{box-shadow:inset 3px 0 0 var(--acc)}

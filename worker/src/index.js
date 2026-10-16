@@ -71,6 +71,17 @@ export function normalizePhone(v) {
   return d;
 }
 
+// короткий кэш на стороне Worker: несколько человек не бомбят BMS одинаковыми запросами
+const cache = new Map();
+function cached(key, ttlMs, fn) {
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.p;
+  const p = fn().catch(e => { cache.delete(key); throw e; });
+  cache.set(key, { at: Date.now(), p });
+  return p;
+}
+const clearCache = () => cache.clear();
+
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
 
 async function loadLines(client) {
@@ -135,13 +146,16 @@ async function route(req, env, url) {
 
   if (path === '/api/board') {
     need('viewer'); checkRange(from, to);
-    return buildBoard(await fetchAssignments(client, from, to));
+    const all = url.searchParams.get('all') === '1';
+    return cached(`board|${from}|${to}|${all}`, 15_000, async () => buildBoard(await fetchAssignments(client, from, to), { all }));
   }
 
   if (path === '/api/staff') {
     need('viewer'); checkRange(from, to);
-    const lines = await loadLines(client);
-    return buildStaff(await loadSchedule(client, lines, from, to), dateRange(from, to));
+    return cached(`staff|${from}|${to}`, 300_000, async () => {
+      const lines = await loadLines(client);
+      return buildStaff(await loadSchedule(client, lines, from, to), dateRange(from, to));
+    });
   }
 
   if (path === '/api/employees') {
@@ -149,10 +163,42 @@ async function route(req, env, url) {
     const date = url.searchParams.get('date');
     const lineId = Number(url.searchParams.get('lineId'));
     if (!ISO.test(date || '') || !lineId) throw new HttpError(400, 'Нужны date и lineId');
-    const entries = asList(await client.get('admin/employee/schedule', {
-      date_from: date, date_to: date, 'line_id__in': lineId,
-    }));
-    return { candidates: buildCandidates(entries, date, lineId) };
+    return cached(`cand|${date}|${lineId}`, 60_000, async () => {
+      const entries = asList(await client.get('admin/employee/schedule', {
+        date_from: date, date_to: date, 'line_id__in': lineId,
+      }));
+      return { candidates: buildCandidates(entries, date, lineId) };
+    });
+  }
+
+  // ---- общий черновик
+  if (path === '/api/draft' && req.method === 'GET') {
+    need('viewer');
+    const since = url.searchParams.get('since');
+    return sessionStub(env).drafts(since === null ? null : Number(since));
+  }
+  if (path === '/api/draft' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    const n = k => Number(b[k]);
+    if (![n('eventServiceId'), n('lineId'), n('employeeId')].every(x => Number.isInteger(x) && x > 0)) throw new HttpError(400, 'Некорректные идентификаторы');
+    const key = `${n('eventServiceId')}:${n('lineId')}`;
+    const str = (v, max) => String(v == null ? '' : v).slice(0, max);
+    await sessionStub(env).draftSet(key, {
+      eventServiceId: n('eventServiceId'), lineId: n('lineId'), roleId: Number(b.roleId) || null,
+      roleName: str(b.roleName, 80), date: str(b.date, 10), title: str(b.title, 160),
+      employeeId: n('employeeId'), employeeName: str(b.employeeName, 120), state: str(b.state, 8),
+      replaceAssignmentId: Number(b.replaceAssignmentId) > 0 ? Number(b.replaceAssignmentId) : null,
+      prevName: str(b.prevName, 120),
+      by: user.name || user.email, at: new Date().toISOString(),
+    });
+    return { ok: true };
+  }
+  if (path === '/api/draft/delete' && req.method === 'POST') {
+    need('editor');
+    const { keys, all } = await body(req);
+    await sessionStub(env).draftDelete(all === true ? '*' : (Array.isArray(keys) ? keys.map(String).slice(0, 500) : []));
+    return { ok: true };
   }
 
   if (path === '/api/assign' && req.method === 'POST') {
@@ -160,15 +206,33 @@ async function route(req, env, url) {
     const b = await body(req);
     const ids = ['eventServiceId', 'lineId', 'employeeId'].map(k => Number(b[k]));
     if (ids.some(n => !Number.isInteger(n) || n <= 0)) throw new HttpError(400, 'Некорректные идентификаторы');
+    const replaceId = Number(b.replaceAssignmentId) > 0 ? Number(b.replaceAssignmentId) : null;
     const isVr = String(b.lineName || '').trim() === VR_LINE_NAME;
+    const stub = sessionStub(env);
     try {
-      const res = await assignEmployee(client, {
-        eventServiceId: ids[0], lineId: ids[1], employeeId: ids[2], isVr,
-      });
+      if (replaceId) {
+        // замена: сначала снимаем прежнего. Если BMS откажет — ничего не меняется.
+        try { await client.delete(`projects/assignment/technical/${replaceId}`); }
+        catch (e) { throw new HttpError(409, 'Не удалось снять прежнего исполнителя в BMS: ' + String(e.message).slice(0, 200)); }
+      }
+      let res;
+      try {
+        res = await assignEmployee(client, { eventServiceId: ids[0], lineId: ids[1], employeeId: ids[2], isVr });
+      } catch (e) {
+        if (replaceId && !(e.name === 'AlreadyExistsError')) {
+          throw new HttpError(502, 'Прежний исполнитель снят, но нового назначить не удалось: ' + String(e.message).slice(0, 200) + ' — назначьте вручную.');
+        }
+        throw e;
+      }
       console.log(JSON.stringify({ evt: 'assign', by: user.email, ...b, rate: res.rate }));
+      await stub.draftDelete([`${ids[0]}:${ids[1]}`]);
+      await stub.bumpBoard(); clearCache();
       return res;
     } catch (e) {
-      if (e.name === 'AlreadyExistsError') throw new HttpError(409, 'Такое назначение уже есть в BMS');
+      if (e.name === 'AlreadyExistsError') {
+        await stub.draftDelete([`${ids[0]}:${ids[1]}`]);
+        throw new HttpError(409, 'Такое назначение уже есть в BMS');
+      }
       throw e;
     }
   }
@@ -185,6 +249,7 @@ async function route(req, env, url) {
     // список пересчитываем на сервере — не доверяем тому, что пришло из браузера
     const missing = findMissingRates(await fetchAssignments(client, f, t));
     const res = await fixRates(client, missing);
+    clearCache(); await sessionStub(env).bumpBoard();
     console.log(JSON.stringify({ evt: 'fixRates', by: user.email, fixed: res.fixed.length, failed: res.failed.length }));
     return res;
   }

@@ -77,6 +77,7 @@ function toSlot(line, item, groupKey) {
   const at = line.assignment_technical;
   return {
     lineId: line.id,
+    assignmentId: at && at.employee ? at.id : null,
     roleId: line.line ? line.line.id : null,
     roleName: line.line ? line.line.name : '',
     badges: badgesFor(item, groupKey),
@@ -143,8 +144,9 @@ export function buildRow(item) {
 }
 
 /** Вся доска: отфильтрованные услуги, сгруппированные по дням, внутри дня по времени. */
-export function buildBoard(items) {
-  const rows = items.filter(isTargetItem).map(buildRow);
+/** all=true — не фильтровать по услугам и лигам (все мероприятия, что есть в BMS). */
+export function buildBoard(items, { all = false } = {}) {
+  const rows = items.filter(i => i && i.event && (all || isTargetItem(i))).map(buildRow);
   rows.sort((a, b) =>
     (a.date || '').localeCompare(b.date || '') ||
     (a.start || '').localeCompare(b.start || '') ||

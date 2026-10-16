@@ -85,6 +85,7 @@ export class BmsClient {
 
   get(path, params) { return this.#request('GET', path, { params }); }
   post(path, body) { return this.#request('POST', path, { body }); }
+  delete(path) { return this.#request('DELETE', path); }
 }
 
 /** Все назначения за период: первая страница, остальные — параллельно. */

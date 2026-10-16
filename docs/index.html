@@ -16,11 +16,11 @@
     <button data-tab="admin" id="tab-admin" hidden>BMS-вход</button>
   </nav>
   <div class="range" id="rangeBox">
-    <button id="prev" title="Неделя назад">‹</button>
-    <input type="date" id="from"> <span>—</span> <input type="date" id="to">
-    <button id="next" title="Неделя вперёд">›</button>
-    <button id="today">Сегодня</button>
-    <button id="reload" class="primary">Обновить</button>
+    <button id="prev" title="Предыдущий месяц">‹</button>
+    <div id="months" class="months"></div>
+    <button id="next" title="Следующий месяц">›</button>
+    <button id="reload" class="primary" title="Перечитать из BMS">Обновить</button>
+    <span id="live" class="live" title="Общая доска: изменения видны всем сразу">● онлайн</span>
   </div>
   <div class="user"><span id="who"></span> <button id="logout">Выйти</button></div>
 </header>
@@ -38,7 +38,7 @@
 
   <section id="view-board" class="view" hidden>
     <div id="draftbar" class="draftbar" hidden>
-      <b>Черновик:</b> <span id="draftN">0</span> назначений не отправлено в BMS
+      <b>Общий черновик:</b> <span id="draftN">0</span> назначений ещё не в BMS (видны всем)
       <button id="draftSend" class="primary">Отправить в BMS</button>
       <button id="draftClear">Очистить</button>
     </div>
@@ -47,6 +47,7 @@
       <select id="league"><option value="">Все лиги</option></select>
       <label><input type="checkbox" id="onlyGaps"> только неукомплектованные</label>
       <label><input type="checkbox" id="onlyProblems"> отказы / без ставки</label>
+      <label title="Показывать и другие услуги и лиги, которые обычно скрыты"><input type="checkbox" id="allEvents"> все услуги и лиги</label>
       <span class="legend">
         <i class="chip appointed">принял</i><i class="chip pending">ждёт</i><i class="chip declined">отказ</i><i class="chip contractor">подрядчик</i>
       </span>

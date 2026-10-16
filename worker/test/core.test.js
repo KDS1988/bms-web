@@ -168,3 +168,18 @@ test('телефон приводится к виду 79268777745', async () => 
   assert.equal(fn('+7 (926) 877-77-45'), '79268777745');
   assert.equal(fn('9268777745'), '79268777745');
 });
+
+test('доска: режим «все услуги» и id назначения в слоте', () => {
+  const other = item({ id: 102, service: { name: 'Запись' } });
+  assert.equal(buildBoard([item(), other]).total, 1);
+  assert.equal(buildBoard([item(), other], { all: true }).total, 2);
+  const slot = buildBoard([item()]).days[0].rows[0].slots.vr[0];
+  assert.equal(slot.assignmentId, 5);
+});
+
+test('BmsClient.delete отправляет DELETE', async () => {
+  let m;
+  const f = async (u, o) => { m = o.method; return new Response(null, { status: 204 }); };
+  await new BmsClient(async () => 't', f).delete('projects/assignment/technical/5');
+  assert.equal(m, 'DELETE');
+});
