@@ -30,9 +30,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export class BmsClient {
   /** @param getToken async (force:boolean) => accessToken */
-  constructor(getToken, fetchImpl = fetch) {
+  constructor(getToken, fetchImpl) {
     this.getToken = getToken;
-    this.fetch = fetchImpl;
+    // fetch нельзя вызывать как метод объекта (Illegal invocation в Workers) — оборачиваем
+    this.fetch = (...args) => (fetchImpl || globalThis.fetch)(...args);
   }
 
   async #request(method, path, { params, body } = {}) {
