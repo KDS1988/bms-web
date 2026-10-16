@@ -85,7 +85,7 @@ const clearCache = () => cache.clear();
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
 
 async function loadLines(client) {
-  return asList(await client.get('admin/catalog/line/list'));
+  return asList(await client.get('admin/catalog/line/list', { page: 1, size: 100 }));
 }
 
 async function loadSchedule(client, lines, from, to) {
@@ -167,7 +167,7 @@ async function route(req, env, url) {
       const entries = asList(await client.get('admin/employee/schedule', {
         date_from: date, date_to: date, 'line_id__in': lineId,
       }));
-      return { candidates: buildCandidates(entries, date, lineId) };
+      return { candidates: buildCandidates(entries, date, lineId), fetchedAt: new Date().toISOString() };
     });
   }
 

@@ -148,8 +148,7 @@
     const k = row.date + '|' + slot.roleId;
     const hit = candCache.get(k);
     if (hit && Date.now() - hit.at < 60000) return hit.p;
-    const p = api('/api/employees', { query: { date: row.date, lineId: slot.roleId } }).then(d => d.candidates)
-      .catch(e => { candCache.delete(k); throw e; });
+    const p = api('/api/employees', { query: { date: row.date, lineId: slot.roleId } }).catch(e => { candCache.delete(k); throw e; });
     candCache.set(k, { at: Date.now(), p });
     return p;
   }
@@ -165,8 +164,8 @@
   document.body.append(pop);
   let popState = null;
   function hidePop() { pop.hidden = true; popState = null; }
-  function showPop(input, items, pick) {
-    popState = { input, items, idx: 0, pick };
+  function showPop(input, items, pick, fetchedAt) {
+    popState = { input, items, idx: 0, pick, fetchedAt };
     const r = input.getBoundingClientRect();
     const w = Math.max(r.width, 300);
     pop.style.minWidth = w + 'px';
@@ -178,8 +177,9 @@
   }
   function drawPop() {
     const st = popState; if (!st) return;
-    if (!st.items.length) { pop.replaceChildren(h('div', { class: 'opt none' }, 'Никого не найдено')); return; }
-    pop.replaceChildren(...st.items.map((c, i) => h('div', { class: 'opt' + (i === st.idx ? ' on' : ''), title: (c.busyWith || []).join('\n'),
+    const foot = st.fetchedAt ? h('div', { class: 'opt none foot' }, 'Занятость из BMS на ' + new Date(st.fetchedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) + ' · «занят» = есть назначение в этот день') : null;
+    if (!st.items.length) { pop.replaceChildren(...[h('div', { class: 'opt none' }, 'Никого не найдено'), foot].filter(Boolean)); return; }
+    pop.replaceChildren(...[foot].filter(Boolean), ...st.items.map((c, i) => h('div', { class: 'opt' + (i === st.idx ? ' on' : ''), title: (c.busyWith || []).join('\n'),
       onmousedown: ev => { ev.preventDefault(); st.pick(c); } },
     h('span', { class: 'cell ' + c.state }, STATE_LABEL[c.state]), ' ', c.name, c.category ? ' · ' + c.category : '', c.inDraft ? ' · в черновике на этот день' : '')));
     const on = pop.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
@@ -193,7 +193,7 @@
     const key = keyOf(row, slot);
     const replacing = !!slot.employee;
     const inp = h('input', { class: 'cellin', type: 'text', autocomplete: 'off', spellcheck: 'false', 'data-key': key,
-      placeholder: replacing ? slot.employee.name : '' });
+      placeholder: replacing ? slot.employee.name : '＋' });
     let list = [];
     const applyLook = () => {
       const d = draft[key];
@@ -205,10 +205,11 @@
     };
     inp._look = applyLook;
     const refresh = async () => {
-      try { list = await candidates(row, slot); } catch (e) { toast(e.message, true); return; }
+      let info;
+      try { info = await candidates(row, slot); list = info.candidates; } catch (e) { toast(e.message, true); return; }
       const used = new Set(Object.values(draft).filter(x => x.date === row.date && x.employeeId).map(x => x.employeeId));
       const items = matchCands(list, inp.value).map(c => ({ ...c, inDraft: used.has(c.id) && !(draft[key] && draft[key].employeeId === c.id) }));
-      showPop(inp, items, pick);
+      showPop(inp, items, pick, info.fetchedAt);
     };
     function pick(c) {
       putDraft({ eventServiceId: row.eventServiceId, lineId: slot.lineId, roleId: slot.roleId, roleName: slot.roleName, date: row.date, title: row.title,
@@ -278,10 +279,18 @@
     document.querySelectorAll('#boardOut .slot[data-slot]').forEach(w => w._render && w._render());
     document.querySelectorAll('#boardOut .cellin').forEach(i => { if (document.activeElement !== i && i._look) i._look(); });
   }
+  // таблица скроллится внутри себя на всю высоту экрана — шапка и колонка «Мероприятие» остаются на месте
+  function fitGrid() {
+    document.querySelectorAll('#boardOut .tablewrap, #staffOut .tablewrap, #ratesOut .tablewrap').forEach(w => {
+      const top = Math.max(0, w.getBoundingClientRect().top);
+      w.style.maxHeight = Math.max(220, window.innerHeight - top - 12) + 'px';
+    });
+  }
   function updateBar() {
     const n = Object.keys(draft).length;
     $('draftbar').hidden = !n || !canEdit();
     $('draftN').textContent = n;
+    fitGrid();
   }
 
   // ---------- доска
@@ -340,7 +349,7 @@
     if (sc && wn) { wn.scrollLeft = sc[0]; wn.scrollTop = sc[1]; }
     window.scrollTo(0, wy);
     if (stale.length && canEdit()) dropDrafts([...new Set(stale)]);
-    updateBar();
+    updateBar(); fitGrid();
   }
 
   // ---------- синхронизация: каждые 3 секунды, пока вкладка открыта
@@ -417,6 +426,7 @@
         h('td', { class: 'n' }, e.name, h('div', { class: 'sub' }, e.lines.map(l => l.name + (l.category ? ' ' + l.category : '')).join(', '))),
         ...st.dates.map(d => { const x = e.days[d] || { state: 'free', items: [] }; return h('td', { class: 'd' }, h('span', { class: 'cell ' + x.state, title: x.items.join('\n') }, label[x.state])); })))));
     $('staffOut').replaceChildren(emps.length ? h('div', { class: 'tablewrap' }, table) : h('p', { class: 'muted' }, 'Никого не найдено.'));
+    fitGrid();
   }
 
   // ---------- ставки
@@ -427,6 +437,7 @@
     $('ratesOut').replaceChildren(m.length ? h('div', { class: 'tablewrap' }, h('table', null,
       h('thead', null, h('tr', null, ...['Дата', 'Мероприятие', 'Роль', 'Сотрудник'].map(x => h('th', null, x)))),
       h('tbody', null, ...m.map(x => h('tr', null, h('td', null, fmtDay(x.date)), h('td', null, x.title), h('td', null, x.role), h('td', null, x.employee)))))) : '');
+    fitGrid();
   }
   async function fixRates() {
     if (!confirm('Доначислить ставки всем назначениям за месяц?')) return;
@@ -474,6 +485,7 @@
     ['sq', 'sline'].forEach(id => $(id).addEventListener('input', () => S.staff && renderStaff()));
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
     document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
+    window.addEventListener('resize', fitGrid);
     setInterval(poll, 3000);
   }
 

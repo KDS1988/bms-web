@@ -94,3 +94,19 @@ td.ev .t{font-weight:600}td.ev .m{color:var(--mut);font-size:12px}
 .slot .chip.editable:hover{outline:1px dashed var(--acc)}
 .cellin.repl{background:var(--bad);color:var(--badt)}
 .cellin.others{box-shadow:inset 3px 0 0 var(--acc)}
+
+/* свободные места, куда можно вписать человека — хорошо заметны */
+.grid .slot{padding:2px}
+.cellin:not(.draft):not(.repl){background:color-mix(in srgb,var(--acc) 13%,transparent);border:1px dashed color-mix(in srgb,var(--acc) 65%,transparent);border-radius:5px}
+.cellin::placeholder{color:var(--acc);opacity:.8;text-align:center}
+.cellin:not(.draft):not(.repl):hover{background:color-mix(in srgb,var(--acc) 24%,transparent)}
+.cellin:focus{border-style:solid}
+.pop .foot{font-size:11px;padding:4px 8px 6px;border-bottom:1px solid var(--line);margin-bottom:2px}
+
+/* закреплённая шапка: контейнер сам скроллится, thead прилипает к его верху */
+.tablewrap{overflow:auto;overscroll-behavior:contain}
+.tablewrap thead th{position:sticky;top:0;z-index:5;box-shadow:0 1px 0 var(--line)}
+.grid thead th:first-child,.staff thead th:first-child{left:0;z-index:7}
+.staff td.n{z-index:2}
+.staff thead th{background:var(--panel)}
+tr.dayrow td{z-index:1}
