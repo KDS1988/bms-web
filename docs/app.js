@@ -182,6 +182,14 @@
     pop.style.top = (up ? Math.max(8, r.top - hh - 4) : r.bottom + 2) + 'px';
     drawPop(); pop.hidden = false;
   }
+  function showMsg(input, text) {
+    popState = { input, items: [], idx: 0, pick: () => {}, fetchedAt: null };
+    const r = input.getBoundingClientRect();
+    pop.style.minWidth = Math.max(r.width, 300) + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 316)) + 'px';
+    pop.style.top = (r.bottom + 2) + 'px'; pop.style.maxHeight = '120px';
+    pop.replaceChildren(h('div', { class: 'opt none' }, text)); pop.hidden = false;
+  }
   function drawPop() {
     const st = popState; if (!st) return;
     const foot = st.fetchedAt ? h('div', { class: 'opt none foot' }, 'Занятость из BMS на ' + new Date(st.fetchedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) + ' · «занят» = есть назначение в этот день') : null;
@@ -255,7 +263,11 @@
     inp._look = applyLook;
     const refresh = async () => {
       let info;
-      try { info = await candidates(row, slot); list = info.candidates; } catch (e) { toast(e.message, true); return; }
+      const ck = row.date + '|' + slot.roleId, hit = candCache.get(ck);
+      if (!(hit && Date.now() - hit.at < 60000)) showMsg(inp, 'Загружаю список сотрудников из BMS…');
+      try { info = await candidates(row, slot); list = info.candidates; }
+      catch (e) { if (document.activeElement === inp) showMsg(inp, 'Не удалось загрузить список: ' + e.message + ' (кликните в ячейку ещё раз)'); return; }
+      if (document.activeElement !== inp) return;
       const used = new Set(Object.values(draft).filter(x => x.date === row.date && x.employeeId).map(x => x.employeeId));
       const items = matchCands(list, inp.value).map(c => ({ ...c, inDraft: used.has(c.id) && !(draft[key] && draft[key].employeeId === c.id) }));
       showPop(inp, items, pick, info.fetchedAt);
