@@ -1,0 +1,23 @@
+name = "bms-web"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+# Адрес страницы на GitHub Pages (только схема+домен, без пути). Несколько — через запятую.
+ALLOWED_ORIGIN = "https://YOUR-USER.github.io"
+# Google OAuth Client ID (тип Web application) — см. README
+GOOGLE_CLIENT_ID = "XXXX.apps.googleusercontent.com"
+# Права по email. «@домен.ru» пускает весь домен. admin ⊃ editor ⊃ viewer.
+ADMIN_EMAILS = "dmitry.korneev88@gmail.com"
+EDITOR_EMAILS = ""
+VIEWER_EMAILS = ""
+
+[[durable_objects.bindings]]
+name = "BMS_SESSION"
+class_name = "BmsSession"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["BmsSession"]
+
+# Секрет задаётся командой:  npx wrangler secret put SESSION_SECRET

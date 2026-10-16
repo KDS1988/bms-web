@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BMS · Назначения</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header id="top" hidden>
+  <div class="brand">BMS · Назначения</div>
+  <nav id="tabs">
+    <button data-tab="board" class="on">Доска</button>
+    <button data-tab="staff">График</button>
+    <button data-tab="rates">Ставки</button>
+    <button data-tab="admin" id="tab-admin" hidden>BMS-вход</button>
+  </nav>
+  <div class="range" id="rangeBox">
+    <button id="prev" title="Неделя назад">‹</button>
+    <input type="date" id="from"> <span>—</span> <input type="date" id="to">
+    <button id="next" title="Неделя вперёд">›</button>
+    <button id="today">Сегодня</button>
+    <button id="reload" class="primary">Обновить</button>
+  </div>
+  <div class="user"><span id="who"></span> <button id="logout">Выйти</button></div>
+</header>
+
+<main>
+  <section id="login" class="login" hidden>
+    <h1>BMS · Назначения</h1>
+    <p>Вход для сотрудников отдела назначений</p>
+    <div id="gbtn"></div>
+    <p class="err" id="loginErr"></p>
+    <p class="muted"><a href="?demo=1">Посмотреть демо на тестовых данных</a></p>
+  </section>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <section id="view-board" class="view">
+    <div class="filters">
+      <input id="q" type="search" placeholder="Поиск: команда, лига, человек…">
+      <select id="league"><option value="">Все лиги</option></select>
+      <label><input type="checkbox" id="onlyGaps"> только неукомплектованные</label>
+      <label><input type="checkbox" id="onlyProblems"> отказы / без ставки</label>
+      <span class="legend">
+        <i class="chip appointed">принял</i><i class="chip pending">ждёт</i><i class="chip declined">отказ</i><i class="chip contractor">подрядчик</i>
+      </span>
+    </div>
+    <div id="boardOut"></div>
+  </section>
+
+  <section id="view-staff" class="view" hidden>
+    <div class="filters">
+      <input id="sq" type="search" placeholder="Поиск по сотруднику">
+      <select id="sline"><option value="">Все амплуа</option></select>
+      <span class="legend"><i class="cell free">свободен</i><i class="cell busy">занят</i><i class="cell off">не может</i></span>
+    </div>
+    <div id="staffOut"></div>
+  </section>
+
+  <section id="view-rates" class="view" hidden>
+    <div class="filters">
+      <button id="ratesFix" class="primary">Доначислить все ставки</button>
+      <span class="muted" id="ratesInfo"></span>
+    </div>
+    <div id="ratesOut"></div>
+  </section>
+
+  <section id="view-admin" class="view" hidden>
+    <h2>Вход сервиса в BMS</h2>
+    <p class="muted">Сервис работает под одной учётной записью BMS. Если сессия истекла, войдите заново по SMS-коду.</p>
+    <p id="bmsStatus"></p>
+    <div class="form">
+      <input id="phone" placeholder="Телефон, 79001234567">
+      <button id="sendOtp">Получить код</button>
+      <input id="otp" placeholder="Код из SMS">
+      <button id="doLogin" class="primary">Войти</button>
+    </div>
+    <p id="adminMsg"></p>
+  </section>
+</main>
+
+<div id="modal" class="modal" hidden>
+  <div class="box">
+    <div class="mh"><b id="mTitle"></b><button id="mClose">✕</button></div>
+    <div class="mb" id="mBody"></div>
+  </div>
+</div>
+<div id="toast" class="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="demo.js"></script>
+<script src="app.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+</body>
+</html>
