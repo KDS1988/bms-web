@@ -159,8 +159,8 @@
   const words = n => lower(n).split(/\s+/).filter(Boolean);
   function matchCands(list, q) {
     const toks = words(q);
-    if (!toks.length) return list.slice(0, 12);
-    return list.filter(c => { const w = words(c.name); return toks.every(t => w.some(x => x.startsWith(t))); }).slice(0, 12);
+    if (!toks.length) return list;
+    return list.filter(c => { const w = words(c.name); return toks.every(t => w.some(x => x.startsWith(t))); });
   }
 
   // выпадающий список подсказок
@@ -174,9 +174,12 @@
     const w = Math.max(r.width, 300);
     pop.style.minWidth = w + 'px';
     pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 16)) + 'px';
-    const below = window.innerHeight - r.bottom;
-    pop.style.maxHeight = Math.max(160, Math.min(300, below - 12)) + 'px';
-    pop.style.top = (below < 180 ? Math.max(8, r.top - 306) : r.bottom + 2) + 'px';
+    const MAXH = 290;                       // окно на ~8 человек, остальные — прокруткой
+    const below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+    const up = below < 200 && above > below;   // не помещается снизу — раскрываем вверх
+    const hh = Math.max(120, Math.min(MAXH, up ? above : below));
+    pop.style.maxHeight = hh + 'px';
+    pop.style.top = (up ? Math.max(8, r.top - hh - 4) : r.bottom + 2) + 'px';
     drawPop(); pop.hidden = false;
   }
   function drawPop() {
