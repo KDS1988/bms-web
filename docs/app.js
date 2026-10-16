@@ -415,11 +415,12 @@
       ? h('div', { class: 'tablewrap grid' }, h('table', null,
         h('thead', null, h('tr', null, h('th', null, 'Мероприятие'), ...used.map(([, l]) => h('th', null, l)), h('th', null, 'Комплект'))), tbody))
       : h('p', { class: 'muted' }, 'Ничего не найдено за выбранный месяц.'));
+    fitGrid();     // сначала высота окна таблицы — иначе scrollTop обрежется до 0
     const wn = document.querySelector('#boardOut .tablewrap');
     if (sc && wn) { wn.scrollLeft = sc[0]; wn.scrollTop = sc[1]; }
     window.scrollTo(0, wy);
     if (stale.length && canEdit()) dropDrafts([...new Set(stale)]);
-    updateBar(); fitGrid();
+    updateBar();
   }
 
   // ---------- синхронизация: каждые 3 секунды, пока вкладка открыта
