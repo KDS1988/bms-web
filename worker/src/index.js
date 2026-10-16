@@ -63,6 +63,14 @@ function makeClient(env) {
   return new BmsClient(force => stub.getAccessToken(force));
 }
 
+/** BMS ждёт только цифры (11–12): «8 926 877-77-45» -> 79268777745. */
+export function normalizePhone(v) {
+  let d = String(v || '').replace(/\D/g, '');
+  if (d.length === 11 && d[0] === '8') d = '7' + d.slice(1);
+  if (d.length === 10) d = '7' + d;
+  return d;
+}
+
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
 
 async function loadLines(client) {
@@ -113,12 +121,12 @@ async function route(req, env, url) {
   if (path === '/api/admin/bms/otp' && req.method === 'POST') {
     need('admin');
     const { phone } = await body(req);
-    return sessionStub(env).requestOtp(String(phone || '').trim());
+    return sessionStub(env).requestOtp(normalizePhone(phone));
   }
   if (path === '/api/admin/bms/login' && req.method === 'POST') {
     need('admin');
     const { phone, code } = await body(req);
-    return sessionStub(env).login(String(phone || '').trim(), String(code || '').trim(), user.email);
+    return sessionStub(env).login(normalizePhone(phone), String(code || '').trim(), user.email);
   }
 
   const client = makeClient(env);

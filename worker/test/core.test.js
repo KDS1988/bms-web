@@ -160,3 +160,11 @@ test('Google ID-токен: подпись, aud, срок', async () => {
   const other = await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify']);
   await assert.rejects(verifyGoogleIdToken(await mk(base, other.privateKey), opts), /bad_signature/);
 });
+
+test('телефон приводится к виду 79268777745', async () => {
+  const src = await import('node:fs').then(m => m.readFileSync(new URL('../src/index.js', import.meta.url), 'utf8'));
+  const fn = new Function(src.match(/export function normalizePhone[\s\S]*?\n}\n/)[0].replace('export ', '') + '; return normalizePhone;')();
+  assert.equal(fn('8 926 877-77-45'), '79268777745');
+  assert.equal(fn('+7 (926) 877-77-45'), '79268777745');
+  assert.equal(fn('9268777745'), '79268777745');
+});
