@@ -4,9 +4,7 @@
  * Все запросы к BMS ходят только отсюда.
  */
 
-// BMS жил на двух доменах (vsporteru.ru и vsporte.ru): пробуем по очереди и запоминаем рабочий
 export const BMS_HOSTS = [
-  { api: 'https://bms-api.vsporteru.ru/api/v1/bms', origin: 'https://bms.vsporteru.ru' },
   { api: 'https://bms-api.vsporte.ru/api/v1/bms', origin: 'https://bms.vsporte.ru' },
 ];
 let hostIdx = 0;
