@@ -102,17 +102,122 @@
     } finally { $('reload').disabled = false; $('reload').textContent = 'Обновить'; }
   }
 
-  // ---------- доска
-  function slotNode(row, slot, key) {
-    const wrap = h('div', { class: 'slot' + (slot.employee ? '' : ' empty') });
+  // ---------- доска как таблица с вводом
+  // Черновик: назначения, которые вы вписали, но ещё не отправили в BMS. Хранится в браузере.
+  let draft = {};
+  try { draft = JSON.parse(localStorage.getItem('bms_draft') || '{}'); } catch (e) { draft = {}; }
+  const saveDraft = () => { try { localStorage.setItem('bms_draft', JSON.stringify(draft)); } catch (e) { /* ok */ } updateBar(); };
+  const keyOf = (row, slot) => row.eventServiceId + ':' + slot.lineId;
+  const candCache = new Map();
+  function candidates(row, slot) {
+    const k = row.date + '|' + slot.roleId;
+    if (!candCache.has(k)) {
+      const pr = api('/api/employees', { query: { date: row.date, lineId: slot.roleId } }).then(d => d.candidates)
+        .catch(e => { candCache.delete(k); throw e; });
+      candCache.set(k, pr);
+    }
+    return candCache.get(k);
+  }
+  const words = n => lower(n).split(/\s+/).filter(Boolean);
+  function matchCands(list, q) {
+    const toks = words(q);
+    if (!toks.length) return list.slice(0, 12);
+    return list.filter(c => { const w = words(c.name); return toks.every(t => w.some(x => x.startsWith(t))); }).slice(0, 12);
+  }
+  const STATE_LABEL = { free: 'свободен', busy: 'занят', off: 'не может' };
+
+  // выпадающий список подсказок (один на всю страницу)
+  const pop = h('div', { class: 'pop', hidden: true });
+  document.body.append(pop);
+  let popState = null; // { input, items, idx, pick }
+  function hidePop() { pop.hidden = true; popState = null; }
+  function showPop(input, items, row, slot, pick) {
+    popState = { input, items, idx: 0, pick };
+    const r = input.getBoundingClientRect();
+    const w = Math.max(r.width, 300);
+    pop.style.minWidth = w + 'px';
+    pop.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 16)) + 'px';
+    const below = window.innerHeight - r.bottom;
+    pop.style.maxHeight = Math.max(160, Math.min(300, below - 12)) + 'px';
+    pop.style.top = (below < 180 ? Math.max(8, r.top - 306) : r.bottom + 2) + 'px';
+    drawPop();
+    pop.hidden = false;
+  }
+  function drawPop() {
+    const st = popState; if (!st) return;
+    if (!st.items.length) { pop.replaceChildren(h('div', { class: 'opt none' }, 'Никого не найдено')); return; }
+    pop.replaceChildren(...st.items.map((c, i) => {
+      const used = c.inDraft ? ' · в черновике на этот день' : '';
+      return h('div', { class: 'opt' + (i === st.idx ? ' on' : ''), title: (c.busyWith || []).join('\n'),
+        onmousedown: ev => { ev.preventDefault(); st.pick(c); } },
+      h('span', { class: 'cell ' + c.state }, STATE_LABEL[c.state]), ' ', c.name, c.category ? ' · ' + c.category : '', used);
+    }));
+    const on = pop.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  }
+
+  function cellInput(row, slot) {
+    const key = keyOf(row, slot);
+    const d = draft[key];
+    const inp = h('input', { class: 'cellin' + (d ? ' draft' : '') + (d && d.error ? ' err' : '') + (d && d.state && d.state !== 'free' ? ' warnc' : ''),
+      type: 'text', autocomplete: 'off', spellcheck: 'false', value: d ? d.employeeName : '',
+      title: d ? (d.error ? 'Ошибка: ' + d.error : 'Черновик — не отправлено в BMS' + (d.state && d.state !== 'free' ? ' · ' + STATE_LABEL[d.state] : '')) : slot.roleName,
+      'data-key': key });
+    let list = [];
+    const refresh = async () => {
+      try { list = await candidates(row, slot); } catch (e) { toast(e.message, true); return; }
+      const used = new Set(Object.values(draft).filter(x => x.date === row.date && x.employeeId).map(x => x.employeeId));
+      const items = matchCands(list, inp.value).map(c => ({ ...c, inDraft: used.has(c.id) && !(draft[key] && draft[key].employeeId === c.id) }));
+      showPop(inp, items, row, slot, pick);
+    };
+    function pick(c) {
+      draft[key] = { eventServiceId: row.eventServiceId, lineId: slot.lineId, roleId: slot.roleId, roleName: slot.roleName,
+        date: row.date, title: row.title, employeeId: c.id, employeeName: c.name, state: c.state };
+      inp.value = c.name; inp.className = 'cellin draft' + (c.state !== 'free' ? ' warnc' : '');
+      inp.title = 'Черновик — не отправлено в BMS' + (c.state !== 'free' ? ' · ' + STATE_LABEL[c.state] : '');
+      hidePop(); saveDraft(); focusNext(inp, 1);
+    }
+    inp.addEventListener('focus', () => { inp.select(); refresh(); });
+    inp.addEventListener('input', () => {
+      if (draft[key]) { delete draft[key]; inp.classList.remove('draft', 'err', 'warnc'); saveDraft(); }
+      refresh();
+    });
+    inp.addEventListener('keydown', ev => {
+      const st = popState && popState.input === inp ? popState : null;
+      if (ev.key === 'ArrowDown' && st) { ev.preventDefault(); st.idx = Math.min(st.items.length - 1, st.idx + 1); drawPop(); }
+      else if (ev.key === 'ArrowUp' && st) { ev.preventDefault(); st.idx = Math.max(0, st.idx - 1); drawPop(); }
+      else if (ev.key === 'Enter') { ev.preventDefault(); if (st && st.items[st.idx]) pick(st.items[st.idx]); else focusNext(inp, 1); }
+      else if (ev.key === 'Escape') { hidePop(); inp.blur(); }
+      else if (ev.key === 'Delete' && !inp.value) { ev.preventDefault(); }
+    });
+    inp.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (document.activeElement === inp) return;
+        if (popState && popState.input === inp) {
+          // «вписал фамилию и ушёл»: если подходит ровно один — берём его
+          if (!draft[key] && inp.value.trim() && popState.items.length === 1 && !popState.items[0].inDraft) pick(popState.items[0]);
+          else hidePop();
+        }
+        if (!draft[key]) inp.value = '';
+      }, 120);
+    });
+    return inp;
+  }
+  function focusNext(from, dir) {
+    const all = [...document.querySelectorAll('#boardOut .cellin')];
+    const i = all.indexOf(from); const nxt = all[i + dir]; if (nxt) nxt.focus();
+  }
+
+  function slotNode(row, slot) {
+    const wrap = h('div', { class: 'slot' });
     if (slot.employee) {
       const isCon = row.contractor && row.contractor.name === slot.employee.name;
       const cls = isCon ? 'contractor' : (slot.status || 'pending');
       wrap.append(h('span', { class: 'chip ' + cls, title: (isCon ? 'подрядчик · ' : '') + (STATUS[slot.status] || '') + (slot.logistics ? ' · ' + slot.logistics : '') }, slot.employee.name));
       if (slot.hasRate === false) wrap.append(h('span', { class: 'warn', title: 'Нет ставки — доначислите на вкладке «Ставки»' }, '⚠'));
+      delete draft[keyOf(row, slot)]; // уже назначено в BMS — черновик не нужен
     } else if (canEdit() && !row.cancelled) {
-      wrap.append(h('button', { title: 'Назначить: ' + slot.roleName, onclick: () => openPicker(row, slot) }, '＋'));
-    } else wrap.append(h('span', { class: 'no' }, '—'));
+      wrap.append(cellInput(row, slot));
+    } else wrap.append(h('span', { class: 'muted' }, '—'));
     for (const b of slot.badges || []) wrap.append(h('span', { class: 'badge' }, b));
     return wrap;
   }
@@ -127,6 +232,7 @@
     return true;
   }
   function renderBoard() {
+    hidePop();
     const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked };
     const sel = $('league'), cur = sel.value;
     if (sel.options.length - 1 !== S.board.leagues.length) {
@@ -148,44 +254,57 @@
             h('div', { class: 't' }, r.title || '—'),
             h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
             r.contractor ? h('span', { class: 'chip contractor' }, 'подрядчик ' + r.contractor.name) : null),
-          ...used.map(([k]) => h('td', null, ...(r.slots[k].length ? r.slots[k].map(s => slotNode(r, s, k)) : [h('span', { class: 'muted' }, '')]))),
+          ...used.map(([k]) => h('td', { class: 'g' }, ...(r.slots[k].length ? r.slots[k].map(s => slotNode(r, s)) : []))),
           h('td', { class: 'stat' + (full ? ' full' : '') }, `${r.stats.filled}/${r.stats.total}`, r.stats.declined ? ` · отказ ${r.stats.declined}` : '')));
       }
     }
     $('boardOut').replaceChildren(shown
-      ? h('div', { class: 'tablewrap' }, h('table', null,
+      ? h('div', { class: 'tablewrap grid' }, h('table', null,
         h('thead', null, h('tr', null, h('th', null, 'Мероприятие'), ...used.map(([, l]) => h('th', null, l)), h('th', null, 'Комплект'))), tbody))
       : h('p', { class: 'muted' }, 'Ничего не найдено за выбранный период.'));
+    saveDraft();
   }
 
-  // ---------- назначение
-  async function openPicker(row, slot) {
-    const body = $('mBody');
-    $('mTitle').textContent = `${slot.roleName} · ${row.title} · ${fmtDay(row.date)}`;
-    body.replaceChildren(h('p', { class: 'muted' }, 'Загрузка кандидатов…'));
-    $('modal').hidden = false;
-    try {
-      const d = await api('/api/employees', { query: { date: row.date, lineId: slot.roleId } });
-      if (!d.candidates.length) return body.replaceChildren(h('p', { class: 'muted' }, 'Нет сотрудников с этим амплуа.'));
-      const label = { free: 'свободен', busy: 'занят', off: 'не может' };
-      body.replaceChildren(...d.candidates.map(c => h('div', { class: 'cand' },
-        h('span', { class: 'cell ' + c.state }, label[c.state]),
-        h('span', { class: 'nm' }, c.name, c.category ? ' · ' + c.category : '', c.busyWith.length ? h('small', null, c.busyWith.join('; ')) : null),
-        h('button', { class: c.state === 'free' ? 'primary' : '', onclick: ev => doAssign(row, slot, c, ev.target) }, 'Назначить'))));
-    } catch (e) { body.replaceChildren(h('p', { class: 'err' }, e.message)); }
-  }
-  async function doAssign(row, slot, c, btn) {
-    if (c.state !== 'free' && !confirm(`${c.name} — ${c.state === 'busy' ? 'уже занят в этот день' : 'отмечен как «не может»'}. Всё равно назначить?`)) return;
-    btn.disabled = true; btn.textContent = '…';
-    try {
-      const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: row.eventServiceId, lineId: slot.lineId, employeeId: c.id, lineName: slot.roleName } });
-      closeModal();
-      if (r.rate === 'failed') toast('Назначен, но ставка не записалась — доначислите на вкладке «Ставки»', true);
-      else toast(c.name + ' назначен(а)');
-      reload();
-    } catch (e) { btn.disabled = false; btn.textContent = 'Назначить'; toast(e.message, true); }
-  }
   function closeModal() { $('modal').hidden = true; }
+
+  // ---------- панель черновика и отправка в BMS
+  function updateBar() {
+    const n = Object.keys(draft).length;
+    $('draftbar').hidden = !n || !canEdit();
+    $('draftN').textContent = n;
+  }
+  async function sendDraft() {
+    const items = Object.entries(draft);
+    if (!items.length) return;
+    const odd = items.filter(([, d]) => d.state && d.state !== 'free').length;
+    if (!confirm(`Отправить в BMS назначений: ${items.length}?` + (odd ? `\nИз них занятых / «не может»: ${odd}.` : ''))) return;
+    const btn = $('draftSend'); btn.disabled = true;
+    const report = []; let i = 0;
+    for (const [key, d] of items) {
+      btn.textContent = `Отправка ${++i}/${items.length}…`;
+      const label = `${fmtDay(d.date)} · ${d.title} · ${d.roleName}: ${d.employeeName}`;
+      try {
+        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: d.eventServiceId, lineId: d.lineId, employeeId: d.employeeId, lineName: d.roleName } });
+        delete draft[key];
+        report.push(r.rate === 'failed' ? ['warn', label + ' — назначен, но ставка не записалась (доначислите на вкладке «Ставки»)'] : ['ok', label]);
+      } catch (e) {
+        if (/уже есть/.test(e.message)) { delete draft[key]; report.push(['skip', label + ' — уже было в BMS']); }
+        else { draft[key].error = e.message; report.push(['err', label + ' — ' + e.message]); }
+      }
+    }
+    btn.disabled = false; btn.textContent = 'Отправить в BMS';
+    saveDraft();
+    const cnt = t => report.filter(x => x[0] === t).length;
+    $('mTitle').textContent = `Готово: отправлено ${cnt('ok') + cnt('warn')}, пропущено ${cnt('skip')}, ошибок ${cnt('err')}`;
+    $('mBody').replaceChildren(...report.map(([t, txt]) => h('div', { class: 'rep ' + t }, ({ ok: '✓ ', warn: '⚠ ', skip: '• ', err: '✗ ' })[t], txt)));
+    $('modal').hidden = false;
+    candCache.clear();
+    reload();
+  }
+  function clearDraft() {
+    if (!confirm('Удалить все неотправленные назначения из черновика?')) return;
+    draft = {}; saveDraft(); if (S.board) renderBoard();
+  }
 
   // ---------- график
   function renderStaff() {
@@ -247,7 +366,7 @@
     $('who').textContent = `${S.user.name} · ${{ admin: 'админ', editor: 'редактор', viewer: 'просмотр' }[S.user.role]}`;
     $('tab-admin').hidden = S.user.role !== 'admin';
     if (!$('from').value) { const t = iso(new Date()); setRange(addDays(t, -1), addDays(t, 6)); }
-    showTab('board');
+    showTab('board'); updateBar();
   }
   function bind() {
     document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
@@ -257,7 +376,7 @@
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
     ['sq', 'sline'].forEach(id => $(id).addEventListener('input', () => S.staff && renderStaff()));
-    $('ratesFix').onclick = fixRates; $('sendOtp').onclick = sendOtp; $('doLogin').onclick = doLogin;
+    $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft; $('sendOtp').onclick = sendOtp; $('doLogin').onclick = doLogin;
   }
 
   bind();
