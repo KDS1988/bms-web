@@ -224,6 +224,8 @@ async function route(req, env, url, ctx) {
       employeeId: n('employeeId'), employeeName: str(b.employeeName, 120), state: str(b.state, 8),
       replaceAssignmentId: Number(b.replaceAssignmentId) > 0 ? Number(b.replaceAssignmentId) : null,
       prevName: str(b.prevName, 120),
+      additionalIds: (Array.isArray(b.additionalIds) ? b.additionalIds : []).map(Number).filter(Number.isInteger).slice(0, 20),
+      additionalNames: (Array.isArray(b.additionalNames) ? b.additionalNames : []).map(x => str(x, 40)).slice(0, 20),
       by: user.name || user.email, at: new Date().toISOString(),
     });
     return { ok: true };
@@ -251,7 +253,10 @@ async function route(req, env, url, ctx) {
       }
       let res;
       try {
-        res = await assignEmployee(client, { eventServiceId: ids[0], lineId: ids[1], employeeId: ids[2], isVr });
+        res = await assignEmployee(client, {
+          eventServiceId: ids[0], lineId: ids[1], employeeId: ids[2], isVr,
+          additionalIds: Array.isArray(b.additionalIds) ? b.additionalIds.slice(0, 20) : [],
+        });
       } catch (e) {
         if (replaceId && !(e.name === 'AlreadyExistsError')) {
           throw new HttpError(502, 'Прежний исполнитель снят, но нового назначить не удалось: ' + String(e.message).slice(0, 200) + ' — назначьте вручную.');

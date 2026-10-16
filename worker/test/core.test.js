@@ -183,3 +183,27 @@ test('BmsClient.delete отправляет DELETE', async () => {
   await new BmsClient(async () => 't', f).delete('projects/assignment/technical/5');
   assert.equal(m, 'DELETE');
 });
+
+test('доп.услуги: выбранные + для ВР автоматические, в назначение уходят link-id', async () => {
+  const calls = [];
+  const f = fakeFetch({
+    'GET projects/event_service_additional_service/100': { body: [{ id: 71, additional_service_id: 5 }, { id: 72, additional_service_id: 8 }, { id: 73, additional_service_id: 9 }] },
+    'POST projects/assignment/technical': o => { calls.push(JSON.parse(o.body)); return { body: { id: 9 } }; },
+    'POST accounting/expense/assignment/technical': { body: {} },
+  });
+  const c = new BmsClient(async () => 't', f);
+  const r1 = await assignEmployee(c, { eventServiceId: 100, lineId: 1, employeeId: 1, isVr: false, additionalIds: [5] });
+  assert.deepEqual(calls[0].event_service_additional_service_list, [71]);
+  assert.equal(r1.additionalApplied, 1);
+  const r2 = await assignEmployee(c, { eventServiceId: 100, lineId: 1, employeeId: 1, isVr: true, additionalIds: [5] });
+  assert.deepEqual(calls[1].event_service_additional_service_list.sort(), [71, 72]);   // 8 есть, 10 у этой услуги нет
+  assert.equal(r2.additionalRequested, 3);
+  const r3 = await assignEmployee(c, { eventServiceId: 100, lineId: 1, employeeId: 1, isVr: false, additionalIds: [] });
+  assert.deepEqual(calls[2].event_service_additional_service_list, []);
+});
+
+test('доска: у мероприятия список доступных доп.услуг с id справочника', () => {
+  const it = item({ additional_services: [{ id: 3, additional_service: { id: 11, short_name: 'МОБ', name: 'Мобильная бригада' } }] });
+  const row = buildBoard([it]).days[0].rows[0];
+  assert.deepEqual(row.additionalServices, [{ id: 11, short: 'МОБ', name: 'Мобильная бригада' }]);
+});

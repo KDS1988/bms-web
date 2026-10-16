@@ -123,3 +123,8 @@ tr.dayrow{cursor:pointer;user-select:none}
 tr.dayrow:hover td{background:color-mix(in srgb,var(--acc) 12%,var(--bg))}
 tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 .ids{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--mut);user-select:text;margin-top:1px}
+
+.addbtn{font-size:10px;padding:0 5px;border:1px dashed var(--line);background:none;color:var(--mut);border-radius:4px;cursor:pointer;white-space:nowrap}
+.addbtn:hover,.addbtn.on{border-color:var(--acc);color:var(--acc)}
+.extramenu{position:fixed;z-index:50;background:var(--bg2,#1c2230);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:180px;box-shadow:0 6px 24px #0008}
+.extramenu label{display:block;padding:3px 0;cursor:pointer}

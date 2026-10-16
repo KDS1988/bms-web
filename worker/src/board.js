@@ -127,6 +127,10 @@ export function buildRow(item) {
     service: item.service ? item.service.name : '',
     cancelled: !!(item.service_status && String(item.service_status).indexOf('Отмен') === 0),
     serviceStatus: item.service_status || '',
+    // доп.услуги, доступные в этой услуге мероприятия: id из справочника + короткое/полное название
+    additionalServices: (item.additional_services || [])
+      .filter(x => x && x.additional_service && x.additional_service.id != null)
+      .map(x => ({ id: x.additional_service.id, short: x.additional_service.short_name || x.additional_service.name || '', name: x.additional_service.name || '' })),
     additional: (item.additional_services || [])
       .map(x => x.additional_service && x.additional_service.short_name).filter(Boolean),
     slots: slotsByGroup,

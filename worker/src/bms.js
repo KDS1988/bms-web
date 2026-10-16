@@ -105,12 +105,15 @@ export async function fetchAssignments(client, dateFrom, dateTo) {
   return items;
 }
 
-/** Link-записи доп.услуг ВР (БК/рек) — именно их id ждёт назначение, а не id из справочника. */
-export async function vrAdditionalServiceLinkIds(client, eventServiceId) {
+/** Link-записи доп.услуг: именно их id ждёт назначение, а не id из справочника. */
+export async function additionalLinkIds(client, eventServiceId, catalogIds) {
+  if (!catalogIds.length) return [];
   const records = await client.get(`projects/event_service_additional_service/${eventServiceId}`);
   if (!Array.isArray(records)) return [];
-  return records.filter(r => r && VR_ADDITIONAL_CATALOG_IDS.includes(r.additional_service_id)).map(r => r.id);
+  return records.filter(r => r && catalogIds.includes(r.additional_service_id)).map(r => r.id);
 }
+export const vrAdditionalServiceLinkIds = (client, eventServiceId) =>
+  additionalLinkIds(client, eventServiceId, VR_ADDITIONAL_CATALOG_IDS);
 
 /** Запись расхода (ставки): без неё назначение остаётся «без денег». line_manual_rate:null — автоматический расчёт. */
 export function postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics }) {
@@ -138,13 +141,14 @@ export function postExpense(client, { eventServiceId, lineId, assignmentId, empl
  * Если шаг 2 не удался — НЕ глотаем молча: возвращаем rate:'failed', чтобы
  * интерфейс показал предупреждение, а ставку можно было доначислить кнопкой «Ставки».
  */
-export async function assignEmployee(client, { eventServiceId, lineId, employeeId, isVr }) {
-  let additional = [];
+export async function assignEmployee(client, { eventServiceId, lineId, employeeId, isVr, additionalIds = [] }) {
   let logistics = null;
-  if (isVr) {
+  const wanted = new Set(additionalIds.map(Number).filter(Number.isInteger));
+  if (isVr) {                       // ВР всегда: удалённая логистика + БК и рек
     logistics = VR_LOGISTICS;
-    additional = await vrAdditionalServiceLinkIds(client, eventServiceId);
+    VR_ADDITIONAL_CATALOG_IDS.forEach(i => wanted.add(i));
   }
+  const additional = await additionalLinkIds(client, eventServiceId, [...wanted]);
 
   const assignment = await client.post('projects/assignment/technical', {
     comment: '',
@@ -160,8 +164,8 @@ export async function assignEmployee(client, { eventServiceId, lineId, employeeI
 
   try {
     await postExpense(client, { eventServiceId, lineId, assignmentId: assignment.id, employeeId, logistics });
-    return { assignmentId: assignment.id, rate: 'ok', additionalServiceIds: additional };
+    return { assignmentId: assignment.id, rate: 'ok', additionalServiceIds: additional, additionalRequested: wanted.size, additionalApplied: additional.length };
   } catch (e) {
-    return { assignmentId: assignment.id, rate: 'failed', rateError: String(e.message || e), additionalServiceIds: additional };
+    return { assignmentId: assignment.id, rate: 'failed', rateError: String(e.message || e), additionalServiceIds: additional, additionalRequested: wanted.size, additionalApplied: additional.length };
   }
 }

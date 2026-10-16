@@ -196,6 +196,41 @@
     const nxt = all[all.indexOf(from) + dir]; if (nxt) nxt.focus();
   }
 
+  // ---------- доп.услуги юнита (МОБ, ЗАЯВ, ФЛЕШ…) из списка услуги мероприятия
+  const extras = new Map();       // key -> [id…] выбранное до того, как вписан человек
+  const extraIds = key => (draft[key] ? draft[key].additionalIds : extras.get(key)) || [];
+  let extraMenu = null;
+  function closeExtraMenu() { if (extraMenu) { extraMenu.remove(); extraMenu = null; } }
+  document.addEventListener('mousedown', e => { if (extraMenu && !extraMenu.contains(e.target) && !e.target.closest('.addbtn')) closeExtraMenu(); });
+  function toggleExtra(row, slot, id) {
+    const key = keyOf(row, slot);
+    const cur = new Set(extraIds(key));
+    if (cur.has(id)) cur.delete(id); else cur.add(id);
+    const ids = [...cur];
+    if (draft[key]) {
+      const names = ids.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || String(i));
+      putDraft({ ...draft[key], additionalIds: ids, additionalNames: names });
+    } else extras.set(key, ids);
+  }
+  function openExtraMenu(btn, row, slot, rerender) {
+    closeExtraMenu();
+    const key = keyOf(row, slot);
+    const box = h('div', { class: 'extramenu' }, h('div', { class: 'muted' }, 'Доп.услуги юнита'));
+    for (const a of row.additionalServices) {
+      const cb = h('input', { type: 'checkbox' }); cb.checked = extraIds(key).includes(a.id);
+      cb.addEventListener('change', () => { toggleExtra(row, slot, a.id); setTimeout(rerender, 0); });
+      box.append(h('label', { title: a.name }, cb, ' ', a.short || a.name, a.name && a.short && a.name !== a.short ? h('span', { class: 'muted' }, ' · ' + a.name) : null));
+    }
+    document.body.append(box); extraMenu = box;
+    const r = btn.getBoundingClientRect();
+    box.style.left = Math.min(r.left, window.innerWidth - 240) + 'px'; box.style.top = (r.bottom + 2) + 'px';
+  }
+
+  function pickedExtras(row, key) {
+    const ids = extraIds(key); extras.delete(key);
+    return { additionalIds: ids, additionalNames: ids.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || String(i)) };
+  }
+
   function cellInput(row, slot, onLeave) {
     const key = keyOf(row, slot);
     const replacing = !!slot.employee;
@@ -220,7 +255,7 @@
     };
     function pick(c) {
       putDraft({ eventServiceId: row.eventServiceId, lineId: slot.lineId, roleId: slot.roleId, roleName: slot.roleName, date: row.date, title: row.title,
-        employeeId: c.id, employeeName: c.name, state: c.state,
+        employeeId: c.id, employeeName: c.name, state: c.state, ...pickedExtras(row, key),
         replaceAssignmentId: replacing ? slot.assignmentId : null, prevName: replacing ? slot.employee.name : '' });
       inp.value = c.name; applyLook(); hidePop(); focusNext(inp, 1);
     }
@@ -273,6 +308,11 @@
           onclick: can ? () => { const inp = cellInput(row, slot, render); wrap.replaceChildren(inp, ...badges()); inp.focus(); } : null }, slot.employee.name));
         if (slot.hasRate === false) kids.push(h('span', { class: 'warn', title: 'Нет ставки — доначислите на вкладке «Ставки»' }, '⚠'));
       }
+      const ex = extraIds(key);
+      if (editable && !isContractor && row.additionalServices && row.additionalServices.length && (d || !slot.employee))
+        kids.push(h('button', { class: 'addbtn' + (ex.length ? ' on' : ''), title: 'Доп.услуги к этому юниту',
+          onclick: e => { e.stopPropagation(); openExtraMenu(e.currentTarget, row, slot, render); } },
+        ex.length ? ex.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || i).join('+') : '＋доп'));
       wrap.replaceChildren(...kids, ...badges());
     };
     const badges = () => (slot.badges || []).map(b => h('span', { class: 'badge' }, b));
@@ -362,7 +402,12 @@
             h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
             h('div', { class: 'ids' }, h('span', { title: 'ID мероприятия' }, 'мер. ' + r.eventId), ' · ', h('span', { title: 'ID услуги' }, 'усл. ' + r.eventServiceId)),
             r.contractor ? h('span', { class: 'chip contractor' }, 'подрядчик ' + r.contractor.name) : null),
-          ...used.map(([k]) => h('td', { class: 'g' }, ...r.slots[k].map(s => slotNode(r, s)))),
+          ...used.map(([k]) => {
+            const sl = r.slots[k];
+            const one = r.contractor && k !== 'vr' && sl.length > 1 && sl.every(s => s.employee && s.employee.name === r.contractor.name && !draft[keyOf(r, s)]);
+            if (!one) return h('td', { class: 'g' }, ...sl.map(s => slotNode(r, s)));
+            return h('td', { class: 'g' }, h('div', { class: 'slot' }, h('span', { class: 'chip contractor', title: 'Все ' + sl.length + ' юнита — у подрядчика' }, sl[0].employee.name + ' ×' + sl.length)));
+          }),
           h('td', { class: 'stat' + (full ? ' full' : '') }, `${r.stats.filled}/${r.stats.total}`, r.stats.declined ? ` · отказ ${r.stats.declined}` : '')));
       }
     }
@@ -410,9 +455,9 @@
     const report = []; let i = 0;
     for (const [key, d] of items) {
       btn.textContent = `Отправка ${++i}/${items.length}…`;
-      const label = `${fmtDay(d.date)} · ${d.title} · ${d.roleName}: ${d.employeeName}` + (d.prevName && d.replaceAssignmentId ? ` (вместо ${d.prevName})` : '');
+      const label = `${fmtDay(d.date)} · ${d.title} · ${d.roleName}: ${d.employeeName}` + (d.prevName && d.replaceAssignmentId ? ` (вместо ${d.prevName})` : '') + (d.additionalNames && d.additionalNames.length ? ` [+${d.additionalNames.join(', ')}]` : '');
       try {
-        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: d.eventServiceId, lineId: d.lineId, employeeId: d.employeeId, lineName: d.roleName, replaceAssignmentId: d.replaceAssignmentId || undefined } });
+        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: d.eventServiceId, lineId: d.lineId, employeeId: d.employeeId, lineName: d.roleName, replaceAssignmentId: d.replaceAssignmentId || undefined, additionalIds: d.additionalIds || [] } });
         delete draft[key];
         report.push(r.rate === 'failed' ? ['warn', label + ' — назначен, но ставка не записалась (доначислите на вкладке «Ставки»)'] : ['ok', label]);
       } catch (e) {

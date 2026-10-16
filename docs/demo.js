@@ -34,7 +34,7 @@
         rows.push({
           eventServiceId: id, eventId: id, date: iso(d), start: h + ':00', end: (h + 3) + ':00',
           league: rnd() > .5 ? 'КХЛ' : 'РПЛ', title: t[0] + ' — ' + t[1], service: 'Прямая трансляция',
-          cancelled: false, serviceStatus: '', additional: [], slots, contractor: null,
+          cancelled: false, serviceStatus: '', additional: ['МОБ'], additionalServices: [{ id: 11, short: 'МОБ', name: 'Мобильная бригада' }, { id: 12, short: 'ЗАЯВ', name: 'Заявка' }, { id: 13, short: 'ФЛЕШ', name: 'Флеш-интервью' }], slots, contractor: null,
           stats: { total, filled, accepted: acc, declined: dec, noRate, cameras: 3, camerasFilled: slots.cam.filter(s => s.employee).length },
         });
         id++;
