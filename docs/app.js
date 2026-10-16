@@ -446,12 +446,42 @@
   }
 
   // ---------- отправка в BMS
-  async function sendDraft() {
-    const items = Object.entries(draft).filter(([k]) => !inflight.has(k));
+  // шаг 1: выбор дат, которые синхронизируем с BMS
+  function sendDraft() {
+    const all = Object.entries(draft).filter(([k]) => !inflight.has(k));
+    if (!all.length) return;
+    const dates = [...new Set(all.map(([, d]) => d.date))].sort();
+    const boxes = dates.map(dt => {
+      const n = all.filter(([, d]) => d.date === dt).length;
+      const cb = h('input', { type: 'checkbox' }); cb.checked = true; cb.dataset.date = dt;
+      return [dt, n, cb];
+    });
+    const sum = h('div', { class: 'muted' });
+    const upd = () => {
+      const sel = boxes.filter(([, , c]) => c.checked);
+      const n = sel.reduce((a, [, k]) => a + k, 0);
+      sum.textContent = `Будет отправлено назначений: ${n}. В BMS они появятся со статусом «ожидает» (серым), со ставками и допуслугами.`;
+      go.disabled = !n; go.textContent = `Отправить в BMS (${n})`;
+    };
+    const go = h('button', { class: 'primary', onclick: () => {
+      const set = new Set(boxes.filter(([, , c]) => c.checked).map(([dt]) => dt));
+      closeModal(); runSend(all.filter(([, d]) => set.has(d.date)));
+    } }, 'Отправить в BMS');
+    boxes.forEach(([, , c]) => c.addEventListener('change', upd));
+    $('mTitle').textContent = 'Какие даты отправить в BMS?';
+    $('mBody').replaceChildren(
+      h('div', { style: 'margin-bottom:8px' },
+        h('button', { onclick: () => { boxes.forEach(([, , c]) => c.checked = true); upd(); } }, 'Все'), ' ',
+        h('button', { onclick: () => { boxes.forEach(([, , c]) => c.checked = false); upd(); } }, 'Ничего')),
+      ...boxes.map(([dt, n, c]) => h('label', { style: 'display:block;padding:3px 0;cursor:pointer' }, c, ' ', fmtDay(dt), h('span', { class: 'muted' }, ` · назначений: ${n}`))),
+      sum, h('div', { style: 'margin-top:10px' }, go));
+    upd(); $('modal').hidden = false;
+  }
+  async function runSend(items) {
     if (!items.length) return;
     const odd = items.filter(([, d]) => d.state && d.state !== 'free').length;
     const repl = items.filter(([, d]) => d.replaceAssignmentId).length;
-    if (!confirm(`Отправить в BMS назначений: ${items.length}?` + (repl ? `\nЗамен: ${repl} (прежний исполнитель будет снят в BMS).` : '') + (odd ? `\nЗанятых / «не может»: ${odd}.` : ''))) return;
+    if (odd || repl) { if (!confirm(`Отправить назначений: ${items.length}.` + (repl ? `\nЗамен: ${repl} (прежний исполнитель будет снят в BMS).` : '') + (odd ? `\nЗанятых / «не может»: ${odd}.` : ''))) return; }
     const btn = $('draftSend'); btn.disabled = true;
     const report = []; let i = 0;
     for (const [key, d] of items) {
