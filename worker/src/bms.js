@@ -117,12 +117,8 @@ export const vrAdditionalServiceLinkIds = (client, eventServiceId) =>
   additionalLinkIds(client, eventServiceId, VR_ADDITIONAL_CATALOG_IDS);
 
 /** Запись расхода (ставки): без неё назначение остаётся «без денег». line_manual_rate:null — автоматический расчёт. */
-export function postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics, additionalServiceIds = [], expenseId = null }) {
-  // допуслуги в ставке — id справочника (так делает и сам BMS); существующую ставку обновляем, новую создаём
-  const send = expenseId
-    ? b => client.put(`accounting/expense/assignment/technical/${expenseId}`, b)
-    : b => client.post('accounting/expense/assignment/technical', b);
-  return send({
+export async function postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics, additionalServiceIds = [], expenseId = null }) {
+  const base = {
     event_service_id: eventServiceId,
     event_service_line_id: lineId,
     assignment_technical_id: assignmentId,
@@ -132,13 +128,26 @@ export function postExpense(client, { eventServiceId, lineId, assignmentId, empl
     employee_id: employeeId,
     line_manual_rate: null,
     logistics: logistics || null,
-    additional_service_ids: additionalServiceIds,
     bonus: null,
     bonus_comment: null,
     penalty: null,
     penalty_comment: null,
     comment: '',
-    event_service_video_task_list: [],
+  };
+  if (!expenseId) {
+    // новая ставка: BMS сам считает тариф по id допуслуг справочника
+    return client.post('accounting/expense/assignment/technical', { ...base, additional_service_ids: additionalServiceIds, event_service_video_task_list: [] });
+  }
+  // существующая ставка: как в интерфейсе BMS — пересчёт тарифа, затем PUT с id тарифов
+  const calc = await client.post('accounting/expense/assignment/technical/pre_calculate_rate', {
+    additional_service_ids: additionalServiceIds, employee_id: employeeId,
+    event_service_id: eventServiceId, event_service_line_id: lineId, logistics: logistics || null,
+  });
+  return client.put(`accounting/expense/assignment/technical/${expenseId}`, {
+    ...base,
+    line_rate_id: calc && calc.line_rate ? calc.line_rate.id : null,
+    logistics_rate_id: calc && calc.logistics_rate ? calc.logistics_rate.id : null,
+    additional_service_rate_list: ((calc && calc.additional_service_rate_list) || []).map(r => r.id),
   });
 }
 

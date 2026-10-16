@@ -214,6 +214,7 @@ test('изменение допов у назначенного: PUT назна�
     'GET projects/event_service_additional_service/478': { body: [{ id: 673, additional_service_id: 1 }, { id: 676, additional_service_id: 4 }] },
     'PUT projects/assignment/technical/123': o => { calls.push(['assign', JSON.parse(o.body)]); return { body: { id: 123 } }; },
     'POST accounting/expense/assignment/technical': o => { calls.push(['expPost', JSON.parse(o.body)]); return { body: {} }; },
+    'POST accounting/expense/assignment/technical/pre_calculate_rate': { body: { line_rate: { id: 72 }, logistics_rate: null, additional_service_rate_list: [{ id: 40 }] } },
     'PUT accounting/expense/assignment/technical/55': o => { calls.push(['expPut', JSON.parse(o.body)]); return { body: {} }; },
   });
   const c = new BmsClient(async () => 't', f);
@@ -224,4 +225,6 @@ test('изменение допов у назначенного: PUT назна�
   assert.equal(r.rate, 'ok');
   await updateAssignment(c, { assignmentId: 123, eventServiceId: 478, lineId: 2388, employeeId: 375, additionalIds: [4], expenseId: 55 });
   assert.equal(calls[3][0], 'expPut');
+  assert.deepEqual(calls[3][1].additional_service_rate_list, [40]);
+  assert.equal(calls[3][1].line_rate_id, 72);
 });
