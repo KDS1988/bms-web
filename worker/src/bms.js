@@ -4,11 +4,11 @@
  * Все запросы к BMS ходят только отсюда.
  */
 
-export const BMS_BASE = 'https://bms-api.vsporte.ru/api/v1/bms';
+export const BMS_BASE = 'https://bms-api.vsporteru.ru/api/v1/bms';
 const BMS_HEADERS = {
   accept: 'application/json, text/plain, */*',
-  origin: 'https://bms.vsporte.ru',
-  referer: 'https://bms.vsporte.ru/',
+  origin: 'https://bms.vsporteru.ru',
+  referer: 'https://bms.vsporteru.ru/',
 };
 
 // ВР: допуслуги из справочника (БК — графика бродкастер, рек — врезка рекламы) и фикс. логистика

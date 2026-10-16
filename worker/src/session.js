@@ -8,8 +8,8 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 
-const BASE = 'https://bms-api.vsporte.ru/api/v1/bms';
-const H = { origin: 'https://bms.vsporte.ru', referer: 'https://bms.vsporte.ru/' };
+const BASE = 'https://bms-api.vsporteru.ru/api/v1/bms';
+const H = { origin: 'https://bms.vsporteru.ru', referer: 'https://bms.vsporteru.ru/' };
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
 
 function jwtExpMs(jwt) {
