@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildBoard, buildRow, isTargetItem } from '../src/board.js';
-import { BmsClient, assignEmployee, AlreadyExistsError } from '../src/bms.js';
+import { BmsClient, assignEmployee, updateAssignment, AlreadyExistsError } from '../src/bms.js';
 import { findMissingRates, fixRates } from '../src/rates.js';
 import { buildStaff, buildCandidates, dateRange } from '../src/staff.js';
 import { signSession, verifySession, roleFor, hasRole, verifyGoogleIdToken, b64urlEncode } from '../src/auth.js';
@@ -206,4 +206,22 @@ test('доска: у мероприятия список доступных до
   const it = item({ additional_services: [{ id: 3, additional_service: { id: 11, short_name: 'МОБ', name: 'Мобильная бригада' } }] });
   const row = buildBoard([it]).days[0].rows[0];
   assert.deepEqual(row.additionalServices, [{ id: 11, short: 'МОБ', name: 'Мобильная бригада' }]);
+});
+
+test('изменение допов у назначенного: PUT назначения + ставка с additional_service_ids', async () => {
+  const calls = [];
+  const f = fakeFetch({
+    'GET projects/event_service_additional_service/478': { body: [{ id: 673, additional_service_id: 1 }, { id: 676, additional_service_id: 4 }] },
+    'PUT projects/assignment/technical/123': o => { calls.push(['assign', JSON.parse(o.body)]); return { body: { id: 123 } }; },
+    'POST accounting/expense/assignment/technical': o => { calls.push(['expPost', JSON.parse(o.body)]); return { body: {} }; },
+    'PUT accounting/expense/assignment/technical/55': o => { calls.push(['expPut', JSON.parse(o.body)]); return { body: {} }; },
+  });
+  const c = new BmsClient(async () => 't', f);
+  const r = await updateAssignment(c, { assignmentId: 123, eventServiceId: 478, lineId: 2388, employeeId: 375, additionalIds: [1] });
+  assert.deepEqual(calls[0][1].event_service_additional_service_list, [673]);
+  assert.equal(calls[1][0], 'expPost');
+  assert.deepEqual(calls[1][1].additional_service_ids, [1]);
+  assert.equal(r.rate, 'ok');
+  await updateAssignment(c, { assignmentId: 123, eventServiceId: 478, lineId: 2388, employeeId: 375, additionalIds: [4], expenseId: 55 });
+  assert.equal(calls[3][0], 'expPut');
 });

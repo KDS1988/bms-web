@@ -85,6 +85,7 @@ export class BmsClient {
 
   get(path, params) { return this.#request('GET', path, { params }); }
   post(path, body) { return this.#request('POST', path, { body }); }
+  put(path, body) { return this.#request('PUT', path, { body }); }
   delete(path) { return this.#request('DELETE', path); }
 }
 
@@ -116,8 +117,12 @@ export const vrAdditionalServiceLinkIds = (client, eventServiceId) =>
   additionalLinkIds(client, eventServiceId, VR_ADDITIONAL_CATALOG_IDS);
 
 /** Запись расхода (ставки): без неё назначение остаётся «без денег». line_manual_rate:null — автоматический расчёт. */
-export function postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics }) {
-  return client.post('accounting/expense/assignment/technical', {
+export function postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics, additionalServiceIds = [], expenseId = null }) {
+  // допуслуги в ставке — id справочника (так делает и сам BMS); существующую ставку обновляем, новую создаём
+  const send = expenseId
+    ? b => client.put(`accounting/expense/assignment/technical/${expenseId}`, b)
+    : b => client.post('accounting/expense/assignment/technical', b);
+  return send({
     event_service_id: eventServiceId,
     event_service_line_id: lineId,
     assignment_technical_id: assignmentId,
@@ -127,6 +132,7 @@ export function postExpense(client, { eventServiceId, lineId, assignmentId, empl
     employee_id: employeeId,
     line_manual_rate: null,
     logistics: logistics || null,
+    additional_service_ids: additionalServiceIds,
     bonus: null,
     bonus_comment: null,
     penalty: null,
@@ -163,9 +169,37 @@ export async function assignEmployee(client, { eventServiceId, lineId, employeeI
   });
 
   try {
-    await postExpense(client, { eventServiceId, lineId, assignmentId: assignment.id, employeeId, logistics });
+    await postExpense(client, { eventServiceId, lineId, assignmentId: assignment.id, employeeId, logistics, additionalServiceIds: [...wanted] });
     return { assignmentId: assignment.id, rate: 'ok', additionalServiceIds: additional, additionalRequested: wanted.size, additionalApplied: additional.length };
   } catch (e) {
     return { assignmentId: assignment.id, rate: 'failed', rateError: String(e.message || e), additionalServiceIds: additional, additionalRequested: wanted.size, additionalApplied: additional.length };
+  }
+}
+
+/**
+ * Изменить допуслуги у уже существующего назначения (тот же человек): PUT назначения
+ * с новым списком link-id, затем обновление ставки с учётом допуслуг. Так делает сам BMS.
+ */
+export async function updateAssignment(client, { assignmentId, eventServiceId, lineId, employeeId, additionalIds = [], logistics = null, expenseId = null }) {
+  const wanted = new Set(additionalIds.map(Number).filter(Number.isInteger));
+  const additional = await additionalLinkIds(client, eventServiceId, [...wanted]);
+  await client.put(`projects/assignment/technical/${assignmentId}`, {
+    comment: '',
+    dismantling: false,
+    employee_id: employeeId,
+    event_service_additional_service_list: additional,
+    event_service_id: eventServiceId,
+    event_service_line_id: lineId,
+    installation: false,
+    logistics: logistics || null,
+    is_traveling: false,
+    travel_route: null,
+    event_service_video_task_list: [],
+  });
+  try {
+    await postExpense(client, { eventServiceId, lineId, assignmentId, employeeId, logistics, additionalServiceIds: [...wanted], expenseId });
+    return { assignmentId, rate: 'ok', additionalApplied: additional.length, additionalRequested: wanted.size, updated: true };
+  } catch (e) {
+    return { assignmentId, rate: 'failed', rateError: String(e.message || e), additionalApplied: additional.length, additionalRequested: wanted.size, updated: true };
   }
 }

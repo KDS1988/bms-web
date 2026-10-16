@@ -86,6 +86,11 @@ function toSlot(line, item, groupKey) {
     // true/false только когда человек реально назначен; null — слот пуст
     hasRate: at && at.employee ? !!at.expense_assignment_technical : null,
     logistics: at && at.logistics ? at.logistics : null,
+    expenseId: at && at.expense_assignment_technical ? at.expense_assignment_technical.id || null : null,
+    // допуслуги, уже стоящие у назначения (id справочника): link-id из назначения -> услуга
+    additionalIds: at && at.employee ? (at.event_service_additional_service_list || [])
+      .map(lid => (item.additional_services || []).find(x => x.id === lid))
+      .filter(x => x && x.additional_service).map(x => x.additional_service.id) : [],
   };
 }
 

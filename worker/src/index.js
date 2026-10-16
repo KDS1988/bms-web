@@ -2,7 +2,7 @@
  * Cloudflare Worker: единственная точка, которая ходит в BMS.
  * Фронтенд (GitHub Pages) получает только готовые данные и не видит токенов BMS.
  */
-import { BmsClient, fetchAssignments, assignEmployee, VR_LINE_NAME } from './bms.js';
+import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard } from './board.js';
 import { buildStaff, buildCandidates, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
@@ -224,6 +224,9 @@ async function route(req, env, url, ctx) {
       employeeId: n('employeeId'), employeeName: str(b.employeeName, 120), state: str(b.state, 8),
       replaceAssignmentId: Number(b.replaceAssignmentId) > 0 ? Number(b.replaceAssignmentId) : null,
       prevName: str(b.prevName, 120),
+      updateAssignmentId: Number(b.updateAssignmentId) > 0 ? Number(b.updateAssignmentId) : null,
+      expenseId: Number(b.expenseId) > 0 ? Number(b.expenseId) : null,
+      logistics: str(b.logistics, 200) || null,
       additionalIds: (Array.isArray(b.additionalIds) ? b.additionalIds : []).map(Number).filter(Number.isInteger).slice(0, 20),
       additionalNames: (Array.isArray(b.additionalNames) ? b.additionalNames : []).map(x => str(x, 40)).slice(0, 20),
       by: user.name || user.email, at: new Date().toISOString(),
@@ -245,6 +248,20 @@ async function route(req, env, url, ctx) {
     const replaceId = Number(b.replaceAssignmentId) > 0 ? Number(b.replaceAssignmentId) : null;
     const isVr = String(b.lineName || '').trim() === VR_LINE_NAME;
     const stub = sessionStub(env);
+    const updateId = Number(b.updateAssignmentId) > 0 ? Number(b.updateAssignmentId) : null;
+    if (updateId) {
+      // тот же человек, меняются только допуслуги — правим назначение на месте
+      const res = await updateAssignment(client, {
+        assignmentId: updateId, eventServiceId: ids[0], lineId: ids[1], employeeId: ids[2],
+        additionalIds: Array.isArray(b.additionalIds) ? b.additionalIds.slice(0, 20) : [],
+        logistics: b.logistics ? String(b.logistics).slice(0, 200) : null,
+        expenseId: Number(b.expenseId) > 0 ? Number(b.expenseId) : null,
+      });
+      console.log(JSON.stringify({ evt: 'updateAssignment', by: user.email, ...b, rate: res.rate }));
+      await stub.draftDelete([`${ids[0]}:${ids[1]}`]);
+      await stub.bumpBoard(); clearCache();
+      return res;
+    }
     try {
       if (replaceId) {
         // замена: сначала снимаем прежнего. Если BMS откажет — ничего не меняется.
