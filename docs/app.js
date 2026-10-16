@@ -437,7 +437,7 @@
     const table = h('table', { class: 'staff' },
       h('thead', null, h('tr', null, h('th', null, 'Сотрудник'), ...st.dates.map(d => h('th', { class: 'd' }, fmtDay(d))))),
       h('tbody', null, ...emps.map(e => h('tr', null,
-        h('td', { class: 'n' }, e.name, h('div', { class: 'sub' }, e.lines.map(l => l.name + (l.category ? ' ' + l.category : '')).join(', '))),
+        h('td', { class: 'n', title: e.name + '\n' + e.lines.map(l => l.name + (l.category ? ' ' + l.category : '')).join('\n') }, e.name.split(' ').slice(0, 2).join(' ')),
         ...st.dates.map(d => { const x = e.days[d] || { state: 'free', items: [] }; return h('td', { class: 'd' }, h('span', { class: 'cell ' + x.state, title: x.items.join('\n') }, label[x.state])); })))));
     $('staffOut').replaceChildren(emps.length ? h('div', { class: 'tablewrap' }, table) : h('p', { class: 'muted' }, 'Никого не найдено.'));
     fitGrid();
