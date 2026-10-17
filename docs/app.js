@@ -706,7 +706,30 @@
   }
 
   // ---------- вход в BMS
+  async function usersAct(kind, email, ask) {
+    if (ask && !confirm(ask)) return;
+    try { await api('/api/admin/users/' + kind, { method: 'POST', body: { email } }); toast(kind === 'approve' ? 'Доступ выдан: ' + email : 'Готово'); loadUsers(); }
+    catch (e) { toast(e.message, true); }
+  }
+  async function loadUsers() {
+    const d = await api('/api/admin/users');
+    const reqs = Object.entries(d.requests || {}), users = Object.entries(d.users || {});
+    const fmt = t => String(t || '').slice(0, 16).replace('T', ' ');
+    const row = (cells, btns) => h('tr', null, ...cells.map(c => h('td', null, c)), h('td', null, ...btns));
+    $('usersBox').replaceChildren(
+      h('h3', null, 'Запросы на доступ' + (reqs.length ? ` (${reqs.length})` : '')),
+      reqs.length ? h('table', { class: 'utable' }, ...reqs.map(([e, r]) => row([r.name || '—', e, fmt(r.at)], [
+        h('button', { class: 'primary', onclick: () => usersAct('approve', e) }, 'Принять (админ)'), ' ',
+        h('button', { onclick: () => usersAct('reject', e) }, 'Отклонить')])))
+        : h('p', { class: 'muted' }, 'Новых запросов нет.'),
+      h('h3', null, 'Пользователи с доступом'),
+      h('table', { class: 'utable' },
+        ...(d.owners || []).map(e => row(['Владелец', e, ''], [h('span', { class: 'muted' }, 'задан в настройках')])),
+        ...users.map(([e, u]) => row([u.name || '—', e, 'принят ' + fmt(u.addedAt) + (u.addedBy ? ' · ' + u.addedBy : '')],
+          [h('button', { onclick: () => usersAct('remove', e, 'Закрыть доступ для ' + e + '?') }, 'Закрыть доступ')]))));
+  }
   async function loadAdmin() {
+    loadUsers().catch(e => toast(e.message, true));
     const s = await api('/api/admin/bms/status');
     $('bmsStatus').textContent = s.loggedIn ? `Сессия активна (${s.phone}, вошёл ${s.loginBy}, ${String(s.loginAt).slice(0, 16).replace('T', ' ')})` : 'Сессия BMS не активна — войдите.';
   }
@@ -734,6 +757,7 @@
     document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
     $('reload').onclick = () => { candCache.clear(); refreshNow = true; reload(); };
     $('prev').onclick = () => setMonth(monthShift(S.month, -1)); $('next').onclick = () => setMonth(monthShift(S.month, 1));
+    $('addUser').onclick = () => { const v = $('newUser').value.trim(); if (v) usersAct('approve', v).then(() => { $('newUser').value = ''; }); };
     $('logout').onclick = logout; $('mClose').onclick = closeModal;
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));

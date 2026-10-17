@@ -62,6 +62,8 @@
     if (path === '/api/employees') {
       return { candidates: NAMES.map((n, i) => ({ id: i + 1, name: n, state: ['free', 'free', 'busy', 'off'][i % 4], busyWith: i % 4 === 2 ? ['КХЛ Динамо — ЦСКА 19:00'] : [], category: 'A' })).sort((a, b) => ({ free: 0, busy: 1, off: 2 }[a.state] - { free: 0, busy: 1, off: 2 }[b.state])) };
     }
+    if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
+    if (path.startsWith('/api/admin/users/')) return { ok: true };
     if (path === '/api/order') { if ((opts.method || 'GET') === 'POST') { ostore[opts.body.date] = opts.body.ids; return { ok: true }; } return { orders: ostore }; }
     if (path === '/api/draft') {
       if ((opts.method || 'GET') === 'GET') return q && q.since !== undefined && Number(q.since) === dv ? { version: dv, boardVersion: 0, unchanged: true } : { version: dv, boardVersion: 0, drafts: dstore };

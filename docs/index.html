@@ -13,7 +13,7 @@
     <button data-tab="board" class="on">Доска</button>
     <button data-tab="staff">График</button>
     <button data-tab="rates">Ставки</button>
-    <button data-tab="admin" id="tab-admin" hidden>BMS-вход</button>
+    <button data-tab="admin" id="tab-admin" hidden>Админ</button>
   </nav>
   <div class="range" id="rangeBox">
     <button id="prev" title="Предыдущий месяц">‹</button>
@@ -76,6 +76,10 @@
   </section>
 
   <section id="view-admin" class="view" hidden>
+    <h2>Пользователи</h2>
+    <p class="muted">Новый сотрудник входит через Google и попадает сюда в «Запросы». Все принятые получают права администратора.</p>
+    <div id="usersBox"></div>
+    <div class="form"><input id="newUser" placeholder="Или добавить заранее: email@gmail.com"><button id="addUser">Добавить</button></div>
     <h2>Вход сервиса в BMS</h2>
     <p class="muted">Сервис работает под одной учётной записью BMS. Если сессия истекла, войдите заново по SMS-коду.</p>
     <p id="bmsStatus"></p>

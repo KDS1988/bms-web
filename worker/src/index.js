@@ -82,6 +82,13 @@ function cached(key, ttlMs, fn) {
 }
 const clearCache = () => cache.clear();
 
+// роль: сначала списки из настроек (владелец), затем пользователи, принятые в админ-кабинете (с коротким кэшем)
+async function effectiveRole(email, env) {
+  const fixed = roleFor(email, env);
+  if (fixed) return fixed;
+  return cached(`role|${String(email).toLowerCase()}`, 15_000, () => sessionStub(env).userRole(email));
+}
+
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
 
 async function loadLines(client) {
@@ -134,8 +141,11 @@ async function route(req, env, url, ctx) {
     } catch (e) {
       throw new HttpError(401, 'Не удалось подтвердить вход через Google');
     }
-    const role = roleFor(who.email, env);
-    if (!role) throw new HttpError(403, `Нет доступа для ${who.email}. Попросите администратора добавить вас в список.`);
+    const role = await effectiveRole(who.email, env);
+    if (!role) {
+      await sessionStub(env).requestAccess(who.email, who.name);
+      throw new HttpError(403, `Запрос на доступ для ${who.email} отправлен администратору. Как только его одобрят, войдите снова.`, { code: 'pending' });
+    }
     const token = await signSession({ email: who.email, name: who.name, role }, env.SESSION_SECRET);
     return { token, user: { email: who.email, name: who.name, role } };
   }
@@ -152,6 +162,27 @@ async function route(req, env, url, ctx) {
   if (path === '/api/me') return { user: { email: user.email, name: user.name, role } };
 
   // ---- администрирование сессии BMS
+  if (path.startsWith('/api/admin/users')) {
+    need('admin');
+    const stub = sessionStub(env);
+    if (path === '/api/admin/users' && req.method === 'GET') {
+      const l = await stub.usersList();
+      const fixed = ['ADMIN_EMAILS', 'EDITOR_EMAILS', 'VIEWER_EMAILS'].flatMap(k => String(env[k] || '').split(',').map(x => x.trim()).filter(Boolean));
+      return { owners: [...new Set(fixed)], users: l.users, requests: l.requests };
+    }
+    if (req.method === 'POST') {
+      const { email } = await body(req);
+      const e = String(email || '').trim().toLowerCase();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new HttpError(400, 'Некорректный email');
+      if (path === '/api/admin/users/approve') { await stub.userApprove(e, user.email); console.log(JSON.stringify({ evt: 'userApprove', by: user.email, email: e })); }
+      else if (path === '/api/admin/users/reject') await stub.userReject(e);
+      else if (path === '/api/admin/users/remove') { await stub.userRemove(e); console.log(JSON.stringify({ evt: 'userRemove', by: user.email, email: e })); }
+      else throw new HttpError(404, 'Не найдено');
+      clearCache();
+      return { ok: true };
+    }
+  }
+
   if (path === '/api/admin/bms/status') { need('admin'); return sessionStub(env).status(); }
   if (path === '/api/admin/bms/otp' && req.method === 'POST') {
     need('admin');
@@ -339,7 +370,7 @@ export default {
     try {
       return json(await route(req, env, url, ctx), 200, cors);
     } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status, cors);
+      if (e instanceof HttpError) return json({ error: e.message, ...(e.extra || {}) }, e.status, cors);
       const msg = String(e && e.message || e);
       if (msg.includes(LOGIN_REQUIRED)) {
         return json({ error: 'Сессия BMS не активна. Администратор должен войти в BMS (раздел «Настройки»).', code: 'bms_login' }, 503, cors);

@@ -162,3 +162,6 @@ tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 
 .xbtn{flex:0 0 auto;width:20px;height:20px;padding:0;line-height:18px;text-align:center;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--mut);cursor:pointer;font-size:12px}
 .xbtn:hover{color:var(--badt);border-color:var(--badt)}
+
+.utable{border-collapse:collapse;margin:4px 0 14px;width:auto}
+.utable td{padding:5px 12px 5px 0;border-bottom:1px solid var(--line);vertical-align:middle}

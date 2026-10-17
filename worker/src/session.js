@@ -113,6 +113,46 @@ export class BmsSession extends DurableObject {
     await this.ctx.storage.put({ bv: ((await this.ctx.storage.get('bv')) || 0) + 1, lw: Date.now() });
   }
 
+  // ---- пользователи, принятые администратором (все — с правами admin), и запросы на доступ
+  async userRole(email) {
+    const users = (await this.ctx.storage.get('users')) || {};
+    return users[String(email).toLowerCase()] ? 'admin' : null;
+  }
+
+  async requestAccess(email, name) {
+    const e = String(email).toLowerCase();
+    const users = (await this.ctx.storage.get('users')) || {};
+    if (users[e]) return;
+    const reqs = (await this.ctx.storage.get('requests')) || {};
+    reqs[e] = { name: String(name || '').slice(0, 120), at: new Date().toISOString() };
+    await this.ctx.storage.put('requests', reqs);
+  }
+
+  async usersList() {
+    return { users: (await this.ctx.storage.get('users')) || {}, requests: (await this.ctx.storage.get('requests')) || {} };
+  }
+
+  async userApprove(email, by) {
+    const e = String(email).toLowerCase();
+    const users = (await this.ctx.storage.get('users')) || {};
+    const reqs = (await this.ctx.storage.get('requests')) || {};
+    users[e] = { name: (reqs[e] && reqs[e].name) || '', addedAt: new Date().toISOString(), addedBy: by };
+    delete reqs[e];
+    await this.ctx.storage.put({ users, requests: reqs });
+  }
+
+  async userReject(email) {
+    const reqs = (await this.ctx.storage.get('requests')) || {};
+    delete reqs[String(email).toLowerCase()];
+    await this.ctx.storage.put('requests', reqs);
+  }
+
+  async userRemove(email) {
+    const users = (await this.ctx.storage.get('users')) || {};
+    delete users[String(email).toLowerCase()];
+    await this.ctx.storage.put('users', users);
+  }
+
   // ---- порядок блоков внутри дня (общий для всех): { 'ГГГГ-ММ-ДД': [eventServiceId…] }
   async orderGet(from, to) {
     const all = (await this.ctx.storage.get('order')) || {};
