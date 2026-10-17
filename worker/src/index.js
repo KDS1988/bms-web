@@ -80,13 +80,19 @@ function cached(key, ttlMs, fn) {
   cache.set(key, { at: Date.now(), p });
   return p;
 }
-const clearCache = () => cache.clear();
+const clearCache = () => { cache.clear(); roleCache.clear(); };
 
 // роль: сначала списки из настроек (владелец), затем пользователи, принятые в админ-кабинете (с коротким кэшем)
+const roleCache = new Map();           // email -> {role, at}; кэшируем только найденную роль
 async function effectiveRole(email, env) {
   const fixed = roleFor(email, env);
   if (fixed) return fixed;
-  return cached(`role|${String(email).toLowerCase()}`, 15_000, () => sessionStub(env).userRole(email));
+  const e = String(email).toLowerCase();
+  const hit = roleCache.get(e);
+  if (hit && Date.now() - hit.at < 15_000) return hit.role;
+  const role = await sessionStub(env).userRole(e);
+  if (role) roleCache.set(e, { role, at: Date.now() }); else roleCache.delete(e);
+  return role || null;
 }
 
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
@@ -154,8 +160,8 @@ async function route(req, env, url, ctx) {
   const auth = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   const user = await verifySession(auth, env.SESSION_SECRET);
   if (!user) throw new HttpError(401, 'Сессия истекла — войдите заново');
-  // роль перечитываем из env: удалили из списка — доступ пропал сразу
-  const role = roleFor(user.email, env);
+  // роль перечитываем на каждый запрос: настройки владельца + принятые в админ-кабинете
+  const role = await effectiveRole(user.email, env);
   if (!role) throw new HttpError(403, 'Доступ отозван');
   const need = r => { if (!hasRole(role, r)) throw new HttpError(403, 'Недостаточно прав'); };
 
