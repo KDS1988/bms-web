@@ -152,3 +152,10 @@ tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 .bcard .addbtn:not(.on){display:none}
 .bcard .brow:hover .addbtn:not(.on),.bcard .brow:focus-within .addbtn:not(.on){display:inline-block}
 .bday{border:1px solid var(--line)}
+
+.bcol{display:flex;flex-direction:column;gap:10px;width:270px;min-height:40px}
+.bcol.over{outline:2px dashed var(--acc);outline-offset:2px;border-radius:8px}
+.bcol.newcol{display:none;align-items:center;justify-content:center;min-height:120px;border:2px dashed var(--line);border-radius:8px;color:var(--mut)}
+.blocks.dragmode .bcol.newcol{display:flex}
+.bcard.over-t{box-shadow:0 -3px 0 var(--acc)}
+.bcard.over-b{box-shadow:0 3px 0 var(--acc)}

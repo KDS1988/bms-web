@@ -394,20 +394,47 @@
   }
 
   // ---------- блочный вид: карточки мероприятий внутри дня, порядок можно менять перетаскиванием
-  function orderedRows(date, rows) {
-    const ord = S.order[date]; if (!ord || !ord.length) return rows;
-    const pos = new Map(ord.map((id, i) => [id, i]));
-    return rows.map((r, i) => [r, i]).sort((a, b) => {
-      const pa = pos.has(a[0].eventServiceId) ? pos.get(a[0].eventServiceId) : 1e6 + a[1];
-      const pb = pos.has(b[0].eventServiceId) ? pos.get(b[0].eventServiceId) : 1e6 + b[1];
-      return pa - pb;
-    }).map(x => x[0]);
+  // раскладка дня: колонки блоков. Сохранённая раскладка — массив колонок [[id…],[id…]];
+  // новые мероприятия и старый плоский порядок раскладываются «кирпичной кладкой» по самой короткой колонке
+  const cardHeight = r => 3 + (r.contractor ? 2 : 0) + Object.values(r.slots).reduce((n, a) => n + a.length, 0) * (r.contractor ? 0.25 : 1);
+  function layoutCols(date, rows, ncols) {
+    const saved = S.order[date];
+    const byId = new Map(rows.map(r => [r.eventServiceId, r]));
+    const cols = [], seen = new Set();
+    if (Array.isArray(saved) && saved.length && Array.isArray(saved[0])) {
+      for (const c of saved) {
+        const col = c.map(id => byId.get(id)).filter(Boolean);
+        col.forEach(r => seen.add(r.eventServiceId));
+        if (col.length) cols.push(col);
+      }
+    }
+    let rest = rows.filter(r => !seen.has(r.eventServiceId));
+    if (Array.isArray(saved) && saved.length && !Array.isArray(saved[0])) {       // старый плоский порядок
+      const pos = new Map(saved.map((id, i) => [id, i]));
+      rest = rest.map((r, i) => [r, i]).sort((x, y) => (pos.has(x[0].eventServiceId) ? pos.get(x[0].eventServiceId) : 1e6 + x[1]) - (pos.has(y[0].eventServiceId) ? pos.get(y[0].eventServiceId) : 1e6 + y[1])).map(x => x[0]);
+    }
+    const n = Math.max(1, ncols);
+    const heights = cols.map(c => c.reduce((a, r) => a + cardHeight(r), 0));
+    for (const r of rest) {
+      if (cols.length < n) { cols.push([r]); heights.push(cardHeight(r)); continue; }
+      const i = heights.indexOf(Math.min(...heights));
+      cols[i].push(r); heights[i] += cardHeight(r);
+    }
+    return cols.filter(c => c.length);
   }
   let dragId = null, dragDate = null;
-  async function saveOrder(date, ids) {
-    S.order[date] = ids;
-    try { await api('/api/order', { method: 'POST', body: { date, ids } }); }
-    catch (e) { toast('Не удалось сохранить порядок: ' + e.message, true); }
+  async function saveLayout(date, cols) {
+    S.order[date] = cols;
+    try { await api('/api/order', { method: 'POST', body: { date, ids: cols } }); }
+    catch (e) { toast('Не удалось сохранить раскладку: ' + e.message, true); }
+  }
+  function collectLayout(blocks) {
+    return [...blocks.querySelectorAll('.bcol')].map(c => [...c.querySelectorAll(':scope > .bcard')].map(x => Number(x.dataset.es))).filter(a => a.length);
+  }
+  function dropInto(blocks, date, moving, col, ref, after) {
+    if (ref) col.insertBefore(moving, after ? ref.nextSibling : ref); else col.append(moving);
+    blocks.querySelectorAll('.bcol').forEach(c => { if (!c.querySelector('.bcard') && !c.classList.contains('newcol')) c.remove(); });
+    saveLayout(date, collectLayout(blocks));
   }
   function blockCard(r, f) {
     const camIdx = {};
@@ -430,20 +457,23 @@
       h('div', { class: 'ids' }, 'мер. ' + r.eventId + ' · усл. ' + r.eventServiceId, h('span', { class: 'stat' + (full ? ' full' : '') }, ` ${r.stats.filled}/${r.stats.total}`)));
     const card = h('div', { class: 'bcard' + (r.cancelled ? ' cancelled' : ''), 'data-es': r.eventServiceId, 'data-date': r.date }, head, ...lines);
     if (canDrag) {
-      head.addEventListener('dragstart', ev => { dragId = r.eventServiceId; dragDate = r.date; card.classList.add('dragging'); ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', String(dragId)); } catch (e) {} });
-      head.addEventListener('dragend', () => { card.classList.remove('dragging'); document.querySelectorAll('.bcard.over').forEach(c => c.classList.remove('over')); dragId = null; });
-      card.addEventListener('dragover', ev => { if (dragId && dragDate === r.date && dragId !== r.eventServiceId) { ev.preventDefault(); card.classList.add('over'); } });
-      card.addEventListener('dragleave', () => card.classList.remove('over'));
-      card.addEventListener('drop', ev => {
-        ev.preventDefault(); card.classList.remove('over');
+      head.addEventListener('dragstart', ev => { dragId = r.eventServiceId; dragDate = r.date; card.classList.add('dragging'); card.closest('.blocks').classList.add('dragmode'); ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', String(dragId)); } catch (e) {} });
+      head.addEventListener('dragend', () => { card.classList.remove('dragging'); const bl = card.closest('.blocks'); if (bl) bl.classList.remove('dragmode'); document.querySelectorAll('.bcard.over-t,.bcard.over-b,.bcol.over').forEach(c => c.classList.remove('over-t', 'over-b', 'over')); dragId = null; });
+      card.addEventListener('dragover', ev => {
         if (!dragId || dragDate !== r.date || dragId === r.eventServiceId) return;
-        const cont = card.parentNode;
-        const cards = [...cont.children];
-        const moving = cards.find(c => Number(c.dataset.es) === dragId); if (!moving) return;
+        ev.preventDefault(); ev.stopPropagation();
+        const rect = card.getBoundingClientRect(), top = ev.clientY < rect.top + rect.height / 2;
+        card.classList.toggle('over-t', top); card.classList.toggle('over-b', !top);
+      });
+      card.addEventListener('dragleave', () => card.classList.remove('over-t', 'over-b'));
+      card.addEventListener('drop', ev => {
+        ev.preventDefault(); ev.stopPropagation();
+        card.classList.remove('over-t', 'over-b');
+        if (!dragId || dragDate !== r.date || dragId === r.eventServiceId) return;
+        const blocks = card.closest('.blocks');
+        const moving = blocks.querySelector(`.bcard[data-es="${dragId}"]`); if (!moving) return;
         const rect = card.getBoundingClientRect();
-        const before = ev.clientX < rect.left + rect.width / 2;
-        cont.insertBefore(moving, before ? card : card.nextSibling);
-        saveOrder(r.date, [...cont.children].map(c => Number(c.dataset.es)));
+        dropInto(blocks, r.date, moving, card.parentNode, card, ev.clientY >= rect.top + rect.height / 2);
       });
     }
     return card;
@@ -459,7 +489,7 @@
     }
     const out = []; let shown = 0; const stale = [];
     for (const day of S.board.days) {
-      const rows = orderedRows(day.date, day.rows.filter(r => rowMatches(r, f)));
+      const rows = day.rows.filter(r => rowMatches(r, f));
       if (!rows.length) continue;
       shown += rows.length;
       const isCol = collapsed.has(day.date);
@@ -468,7 +498,24 @@
       h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length));
       if (isCol) continue;
       for (const r of rows) for (const k of Object.keys(r.slots)) for (const s of r.slots[k]) if (draft[keyOf(r, s)] && isStale(draft[keyOf(r, s)], s)) stale.push(keyOf(r, s));
-      out.push(h('div', { class: 'blocks' }, ...rows.map(r => blockCard(r, f))));
+      const ncols = Math.max(1, Math.floor(((box.clientWidth || window.innerWidth) + 10) / 280));
+      const blocks = h('div', { class: 'blocks', 'data-date': day.date });
+      const mkCol = (cls) => {
+        const col = h('div', { class: 'bcol' + (cls ? ' ' + cls : '') });
+        col.addEventListener('dragover', ev => { if (dragId && dragDate === day.date) { ev.preventDefault(); col.classList.add('over'); } });
+        col.addEventListener('dragleave', ev => { if (ev.target === col) col.classList.remove('over'); });
+        col.addEventListener('drop', ev => {
+          ev.preventDefault(); col.classList.remove('over');
+          if (!dragId || dragDate !== day.date) return;
+          const moving = blocks.querySelector(`.bcard[data-es="${dragId}"]`); if (!moving) return;
+          if (col.classList.contains('newcol')) { col.classList.remove('newcol'); col.append(moving); const nc = mkCol('newcol'); nc.append(h('span', { class: 'hint' }, '＋ новая колонка')); blocks.append(nc); blocks.querySelectorAll('.bcol').forEach(c => { if (!c.querySelector('.bcard') && !c.classList.contains('newcol')) c.remove(); }); saveLayout(day.date, collectLayout(blocks)); }
+          else dropInto(blocks, day.date, moving, col, null, false);
+        });
+        return col;
+      };
+      for (const colRows of layoutCols(day.date, rows, ncols)) { const col = mkCol(); col.append(...colRows.map(r => blockCard(r, f))); blocks.append(col); }
+      if (canEdit()) { const nc = mkCol('newcol'); nc.append(h('span', { class: 'hint' }, '＋ новая колонка')); blocks.append(nc); }
+      out.push(blocks);
     }
     box.replaceChildren(shown ? h('div', { class: 'blockwrap' }, ...out) : h('p', { class: 'muted' }, 'Ничего не найдено за выбранный месяц.'));
     window.scrollTo(0, wy);

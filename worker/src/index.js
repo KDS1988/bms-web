@@ -189,7 +189,11 @@ async function route(req, env, url, ctx) {
       need('editor');
       const b = await body(req);
       if (!ISO.test(b.date || '') || !Array.isArray(b.ids)) throw new HttpError(400, 'Нужны date и ids');
-      const ids = b.ids.map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 300);
+      const clean = arr => arr.map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 300);
+      // раскладка колонками [[id…],[id…]] (или старый плоский список)
+      const ids = b.ids.length && Array.isArray(b.ids[0])
+        ? b.ids.slice(0, 40).map(c => clean(Array.isArray(c) ? c : [])).filter(c => c.length)
+        : clean(b.ids);
       await sessionStub(env).orderSet(b.date, ids);
       return { ok: true };
     }
