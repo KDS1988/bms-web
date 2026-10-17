@@ -100,7 +100,7 @@
   function showTab(t) {
     S.tab = t;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    ['board', 'staff', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
+    ['board', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
     $('rangeBox').hidden = t === 'admin';
     reload();
   }
@@ -114,7 +114,6 @@
         if (!S.board) $('boardOut').replaceChildren(h('p', { class: 'muted' }, 'Загружаю ' + MONTHS[Number(S.month.slice(5)) - 1].toLowerCase() + '…'));
         await loadBoard(false, refreshNow); refreshNow = false;
       }
-      if (S.tab === 'staff') { if (!S.staff) $('staffOut').replaceChildren(h('p', { class: 'muted' }, 'Загружаю график…')); const m = S.month, d = await api('/api/staff', { query: range() }); if (m === S.month) { S.staff = d; renderStaff(); } }
       if (S.tab === 'rates') { if (!S.rates) $('ratesOut').replaceChildren(h('p', { class: 'muted' }, 'Ищу назначения без ставки…')); const m = S.month, d = await api('/api/rates/missing', { query: range() }); if (m === S.month) { S.rates = d; renderRates(); } }
     } catch (e) {
       banner(e.message);
@@ -665,26 +664,6 @@
   }
   function closeModal() { $('modal').hidden = true; }
 
-  // ---------- график
-  function renderStaff() {
-    const st = S.staff, q = lower($('sq').value.trim()), line = Number($('sline').value) || 0;
-    const sel = $('sline');
-    if (sel.options.length - 1 !== st.lines.length) {
-      const cur = sel.value;
-      sel.replaceChildren(h('option', { value: '' }, 'Все амплуа'), ...st.lines.map(l => h('option', { value: l.id }, l.name)));
-      sel.value = cur;
-    }
-    const emps = st.employees.filter(e => (!q || lower(e.name).includes(q)) && (!line || e.lines.some(l => l.id === line)));
-    const label = { free: '', busy: 'занят', off: 'вых.' };
-    const table = h('table', { class: 'staff' },
-      h('thead', null, h('tr', null, h('th', null, 'Сотрудник'), ...st.dates.map(d => h('th', { class: 'd' }, fmtDay(d))))),
-      h('tbody', null, ...emps.map(e => h('tr', null,
-        h('td', { class: 'n', title: e.name + '\n' + e.lines.map(l => l.name + (l.category ? ' ' + l.category : '')).join('\n') }, e.name.split(' ').slice(0, 2).join(' ')),
-        ...st.dates.map(d => { const x = e.days[d] || { state: 'free', items: [] }; return h('td', { class: 'd' }, h('span', { class: 'cell ' + x.state, title: x.items.join('\n') }, label[x.state])); })))));
-    $('staffOut').replaceChildren(emps.length ? h('div', { class: 'tablewrap' }, table) : h('p', { class: 'muted' }, 'Никого не найдено.'));
-    fitGrid();
-  }
-
   // ---------- ставки
   function renderRates() {
     const m = S.rates.missing;
@@ -762,7 +741,6 @@
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
     $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = null; reload(); });
-    ['sq', 'sline'].forEach(id => $(id).addEventListener('input', () => S.staff && renderStaff()));
     const setView = () => { $('viewToggle').textContent = S.view === 'blocks' ? '☷ Таблица' : '▦ Блоки'; };
     $('viewToggle').onclick = () => { S.view = S.view === 'blocks' ? 'table' : 'blocks'; try { localStorage.setItem('bms_view', S.view); } catch (e) {} setView(); if (S.board) renderBoard(); };
     setView();
