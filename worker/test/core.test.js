@@ -235,3 +235,11 @@ test('BMS: ходим только на bms-api.vsporte.ru', async () => {
   await c.get('x');
   assert.ok(urls[0].startsWith('https://bms-api.vsporte.ru/api/v1/bms/'));
 });
+
+test('доска: допуслуги, уже стоящие у назначения в BMS, видны у юнита (link-id -> id справочника)', () => {
+  const it = item({ additional_services: [{ id: 673, additional_service: { id: 1, short_name: 'ФЛЕШ' } }, { id: 676, additional_service: { id: 4, short_name: 'ОП' } }] });
+  it.event_service_lines[0].assignment_technical.event_service_additional_service_list = [676];
+  const slot = buildBoard([it]).days[0].rows[0].slots.vr[0];
+  assert.deepEqual(slot.additionalIds, [4]);
+  assert.equal(slot.expenseId, 1);
+});

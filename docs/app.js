@@ -241,8 +241,8 @@
     box.style.left = Math.min(r.left, window.innerWidth - 240) + 'px'; box.style.top = (r.bottom + 2) + 'px';
   }
 
-  function pickedExtras(row, key) {
-    const ids = extraIds(key, null); extras.delete(key);
+  function pickedExtras(row, key, slot) {
+    const ids = extraIds(key, slot);   // при замене человека допуслуги юнита, уже стоящие в BMS, сохраняются extras.delete(key);
     return { additionalIds: ids, additionalNames: ids.map(i => (row.additionalServices.find(a => a.id === i) || {}).short || String(i)) };
   }
 
@@ -274,7 +274,7 @@
     };
     function pick(c) {
       putDraft({ eventServiceId: row.eventServiceId, lineId: slot.lineId, roleId: slot.roleId, roleName: slot.roleName, date: row.date, title: row.title,
-        employeeId: c.id, employeeName: c.name, state: c.state, ...pickedExtras(row, key),
+        employeeId: c.id, employeeName: c.name, state: c.state, ...pickedExtras(row, key, slot),
         replaceAssignmentId: replacing ? slot.assignmentId : null, prevName: replacing ? slot.employee.name : '' });
       inp.value = c.name; applyLook(); hidePop(); focusNext(inp, 1);
     }
