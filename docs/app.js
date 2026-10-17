@@ -52,7 +52,7 @@
     });
     let data = {}; try { data = await r.json(); } catch (e) { /* пусто */ }
     if (r.status === 401 && S.token) { logout(); throw new Error('Сессия истекла — войдите заново'); }
-    if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; throw e; }
+    if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; e.status = r.status; throw e; }
     return data;
   }
 
@@ -595,7 +595,13 @@
       if (Date.now() - lastBoardAt > 60000) needBoard = true;
       $('live').textContent = '● онлайн'; $('live').classList.remove('off');
       if (needBoard && !editingNow() && S.board) { needBoard = false; await loadBoard(true); }
-    } catch (e) { $('live').textContent = '● нет связи'; $('live').classList.add('off'); }
+    } catch (e) {
+      $('live').textContent = '● нет связи'; $('live').classList.add('off');
+      const why = e && e.status ? `Сервер ответил ${e.status}: ${e.message}` : 'Браузер не достучался до сервера: ' + (e && e.message ? e.message : e) + ' (' + CFG.API_URL + ')';
+      $('live').title = why;
+      if (e && e.status === 403) banner(e.message);
+      try { console.warn('poll failed:', why); } catch (x) { /* ok */ }
+    }
     finally { polling = false; }
   }
 
