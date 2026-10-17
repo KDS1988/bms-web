@@ -50,7 +50,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 export class BmsClient {
   /** @param getToken async (force:boolean) => accessToken */
   constructor(getToken, fetchImpl) {
-    this.getToken = getToken;
+    // токен берём у Durable Object один раз на весь запрос (каждый такой вызов — отдельный subrequest,
+    // а у Worker их лимит на один вызов); повторно — только после 401
+    let cachedP = null;
+    this.getToken = force => {
+      if (force || !cachedP) cachedP = Promise.resolve(getToken(force)).catch(e => { cachedP = null; throw e; });
+      return cachedP;
+    };
     // fetch нельзя вызывать как метод объекта (Illegal invocation в Workers) — оборачиваем
     this.fetch = (...args) => (fetchImpl || globalThis.fetch)(...args);
   }
