@@ -72,7 +72,7 @@ td.ev .t{font-weight:600}td.ev .m{color:var(--mut);font-size:12px}
 .cellin{width:100%;border:0;border-radius:0;background:transparent;padding:5px 6px;outline:none;font:inherit;color:var(--txt);min-height:26px}
 .cellin:hover{background:color-mix(in srgb,var(--acc) 8%,transparent)}
 .cellin:focus{background:var(--bg);box-shadow:inset 0 0 0 2px var(--acc)}
-.cellin.draft{background:var(--wait);color:var(--waitt);font-weight:600}
+.cellin.draft{background:color-mix(in srgb,var(--mut) 32%,var(--panel));color:var(--txt);font-weight:600}
 .cellin.draft.warnc{box-shadow:inset 0 0 0 1px var(--badt)}
 .cellin.err{background:var(--bad);color:var(--badt)}
 .draftbar{position:sticky;top:48px;z-index:6;display:flex;gap:10px;align-items:center;background:var(--wait);color:var(--waitt);padding:8px 12px;border-radius:8px;margin-bottom:10px}
@@ -92,7 +92,7 @@ td.ev .t{font-weight:600}td.ev .m{color:var(--mut);font-size:12px}
 .live{font-size:12px;color:var(--okt);margin-left:6px}.live.off{color:var(--badt)}
 .slot .chip.editable{cursor:pointer}
 .slot .chip.editable:hover{outline:1px dashed var(--acc)}
-.cellin.repl{background:var(--bad);color:var(--badt)}
+.cellin.repl{background:color-mix(in srgb,var(--mut) 32%,var(--panel));color:var(--txt);box-shadow:inset 0 0 0 1px var(--badt)}
 .cellin.others{box-shadow:inset 3px 0 0 var(--acc)}
 
 /* свободные места, куда можно вписать человека — хорошо заметны */
@@ -159,3 +159,6 @@ tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 .blocks.dragmode .bcol.newcol{display:flex}
 .bcard.over-t{box-shadow:0 -3px 0 var(--acc)}
 .bcard.over-b{box-shadow:0 3px 0 var(--acc)}
+
+.xbtn{flex:0 0 auto;width:20px;height:20px;padding:0;line-height:18px;text-align:center;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--mut);cursor:pointer;font-size:12px}
+.xbtn:hover{color:var(--badt);border-color:var(--badt)}

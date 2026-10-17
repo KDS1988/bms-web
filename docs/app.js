@@ -327,6 +327,8 @@
           onclick: can ? () => { const inp = cellInput(row, slot, render); wrap.replaceChildren(inp, ...badges()); inp.focus(); } : null }, slot.employee.name));
         if (slot.hasRate === false) kids.push(h('span', { class: 'warn', title: 'Нет ставки — доначислите на вкладке «Ставки»' }, '⚠'));
       }
+      if (editable && d && !isContractor)
+        kids.unshift(h('button', { class: 'xbtn', title: 'Убрать из черновика', onclick: e => { e.stopPropagation(); extras.delete(key); dropDrafts([key]); setTimeout(render, 0); } }, '✕'));
       const ex = extraIds(key, slot);
       if (editable && !isContractor && row.additionalServices && row.additionalServices.length)
         kids.push(h('button', { class: 'addbtn' + (ex.length ? ' on' : ''), title: 'Доп.услуги к этому юниту',
