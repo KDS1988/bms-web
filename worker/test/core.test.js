@@ -243,3 +243,9 @@ test('доска: допуслуги, уже стоящие у назначен�
   assert.deepEqual(slot.additionalIds, [4]);
   assert.equal(slot.expenseId, 1);
 });
+
+test('доска: допы назначения приходят объектами link-записей (как отдаёт BMS)', () => {
+  const it = item({ additional_services: [{ id: 19388, additional_service: { id: 8, short_name: 'БК' } }] });
+  it.event_service_lines[0].assignment_technical.event_service_additional_service_list = [{ id: 19388, additional_service_id: 8, additional_service: { id: 8, short_name: 'БК' } }];
+  assert.deepEqual(buildBoard([it]).days[0].rows[0].slots.vr[0].additionalIds, [8]);
+});

@@ -87,10 +87,13 @@ function toSlot(line, item, groupKey) {
     hasRate: at && at.employee ? !!at.expense_assignment_technical : null,
     logistics: at && at.logistics ? at.logistics : null,
     expenseId: at && at.expense_assignment_technical ? at.expense_assignment_technical.id || null : null,
-    // допуслуги, уже стоящие у назначения (id справочника): link-id из назначения -> услуга
-    additionalIds: at && at.employee ? (at.event_service_additional_service_list || [])
-      .map(lid => (item.additional_services || []).find(x => x.id === lid))
-      .filter(x => x && x.additional_service).map(x => x.additional_service.id) : [],
+    // допуслуги, уже стоящие у назначения (id справочника). BMS отдаёт объекты link-записей;
+    // на всякий случай понимаем и голые link-id
+    additionalIds: at && at.employee ? [...new Set((at.event_service_additional_service_list || []).map(x => {
+      if (x && typeof x === 'object') return x.additional_service_id != null ? x.additional_service_id : (x.additional_service && x.additional_service.id);
+      const hit = (item.additional_services || []).find(y => y.id === x);
+      return hit && hit.additional_service ? hit.additional_service.id : null;
+    }).filter(v => v != null))] : [],
   };
 }
 
