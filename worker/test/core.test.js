@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { buildBoard, buildRow, isTargetItem } from '../src/board.js';
 import { BmsClient, assignEmployee, updateAssignment, AlreadyExistsError } from '../src/bms.js';
 import { findMissingRates, fixRates } from '../src/rates.js';
-import { buildStaff, buildCandidates, dateRange } from '../src/staff.js';
+import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from '../src/staff.js';
 import { signSession, verifySession, roleFor, hasRole, verifyGoogleIdToken, b64urlEncode } from '../src/auth.js';
 
 const emp = (id, last, first, lineId, cat) => ({
@@ -248,4 +248,11 @@ test('доска: допы назначения приходят объекта�
   const it = item({ additional_services: [{ id: 19388, additional_service: { id: 8, short_name: 'БК' } }] });
   it.event_service_lines[0].assignment_technical.event_service_additional_service_list = [{ id: 19388, additional_service_id: 8, additional_service: { id: 8, short_name: 'БК' } }];
   assert.deepEqual(buildBoard([it]).days[0].rows[0].slots.vr[0].additionalIds, [8]);
+});
+
+test('кандидаты из employee_list: свободные, занятые, «не может»', () => {
+  const mk = (id, last, over) => ({ id, last_name: last, first_name: 'И', middle_name: '', user_line_categories: [{ line: { id: 7 }, category: '***' }], is_dayoff: false, is_assigned: false, ...over });
+  const c = buildCandidatesFromList([mk(1, 'Яшин', { is_dayoff: true }), mk(2, 'Бабич', { is_assigned: true }), mk(3, 'Воронов', {})], 7);
+  assert.deepEqual(c.map(x => x.state), ['free', 'busy', 'off']);
+  assert.equal(c[0].category, '***');
 });

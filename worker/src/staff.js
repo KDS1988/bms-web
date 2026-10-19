@@ -100,3 +100,27 @@ export function buildCandidates(entries, date, lineId) {
   out.sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name, 'ru'));
   return out;
 }
+
+/**
+ * Кандидаты из users/user/employee_list (тот же запрос использует интерфейс BMS при назначении):
+ * сервер уже отдаёт сотрудников выбранного амплуа на дату с флагами is_dayoff («не может») и is_assigned («занят»).
+ */
+export function buildCandidatesFromList(list, lineId) {
+  const rank = { free: 0, busy: 1, off: 2 };
+  const seen = new Set();
+  const out = [];
+  for (const emp of list || []) {
+    if (!emp || seen.has(emp.id)) continue;
+    seen.add(emp.id);
+    const cat = (emp.user_line_categories || []).find(c => c.line && c.line.id === lineId);
+    out.push({
+      id: emp.id,
+      name: normalizeFio(`${emp.last_name || ''} ${emp.first_name || ''} ${emp.middle_name || ''}`),
+      state: emp.is_dayoff ? 'off' : (emp.is_assigned ? 'busy' : 'free'),
+      busyWith: [],
+      category: cat ? cat.category || '' : '',
+    });
+  }
+  out.sort((a, b) => rank[a.state] - rank[b.state] || a.name.localeCompare(b.name, 'ru'));
+  return out;
+}

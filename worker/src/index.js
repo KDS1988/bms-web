@@ -4,7 +4,7 @@
  */
 import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard } from './board.js';
-import { buildStaff, buildCandidates, dateRange } from './staff.js';
+import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
@@ -252,10 +252,8 @@ async function route(req, env, url, ctx) {
     const lineId = Number(url.searchParams.get('lineId'));
     if (!ISO.test(date || '') || !lineId) throw new HttpError(400, 'Нужны date и lineId');
     return cached(`cand|${date}|${lineId}`, 60_000, async () => {
-      const entries = asList(await client.get('admin/employee/schedule', {
-        date_from: date, date_to: date, 'line_id__in': lineId,
-      }));
-      return { candidates: buildCandidates(entries, date, lineId), fetchedAt: new Date().toISOString() };
+      const list = asList(await client.get('users/user/employee_list', { line_id: lineId, date }));
+      return { candidates: buildCandidatesFromList(list, lineId), fetchedAt: new Date().toISOString() };
     });
   }
 
