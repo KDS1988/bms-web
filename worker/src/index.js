@@ -3,7 +3,8 @@
  * Фронтенд (GitHub Pages) получает только готовые данные и не видит токенов BMS.
  */
 import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
-import { buildBoard } from './board.js';
+import { buildBoard, roleGroupKey } from './board.js';
+import { sanitizePlan } from './plans.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
@@ -226,7 +227,7 @@ async function route(req, env, url, ctx) {
       need('editor');
       const b = await body(req);
       if (!ISO.test(b.date || '') || !Array.isArray(b.ids)) throw new HttpError(400, 'Нужны date и ids');
-      const clean = arr => arr.map(Number).filter(n => Number.isInteger(n) && n > 0).slice(0, 300);
+      const clean = arr => arr.map(Number).filter(n => Number.isInteger(n) && n !== 0).slice(0, 300);
       // раскладка колонками [[id…],[id…]] (или старый плоский список)
       const ids = b.ids.length && Array.isArray(b.ids[0])
         ? b.ids.slice(0, 40).map(c => clean(Array.isArray(c) ? c : [])).filter(c => c.length)
@@ -257,6 +258,37 @@ async function route(req, env, url, ctx) {
     });
   }
 
+  // ---- справочник ролей (для состава мероприятия-черновика)
+  if (path === '/api/lines') {
+    need('viewer');
+    return cached('lines', 3_600_000, async () => ({
+      lines: (await loadLines(client)).map(l => ({ id: l.id, name: l.name, group: roleGroupKey(l.name) })),
+    }));
+  }
+
+  // ---- мероприятия-черновики
+  if (path === '/api/plans' && req.method === 'GET') {
+    need('viewer'); checkRange(from, to);
+    return { plans: await sessionStub(env).plansGet(from, to) };
+  }
+  if (path === '/api/plans' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    const r = sanitizePlan(b);
+    if (r.error) throw new HttpError(400, r.error);
+    const id = Number(b.id) > 0 ? Number(b.id) : null;
+    const plan = await sessionStub(env).planSave(id, r.plan, user.name || user.email);
+    if (!plan) throw new HttpError(404, 'Такого мероприятия-черновика уже нет');
+    return { plan };
+  }
+  if (path === '/api/plans/delete' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    if (!(Number(b.id) > 0)) throw new HttpError(400, 'Нужен id');
+    await sessionStub(env).planDelete(Number(b.id));
+    return { ok: true };
+  }
+
   // ---- общий черновик
   if (path === '/api/draft' && req.method === 'GET') {
     need('viewer');
@@ -267,7 +299,7 @@ async function route(req, env, url, ctx) {
     need('editor');
     const b = await body(req);
     const n = k => Number(b[k]);
-    if (![n('eventServiceId'), n('lineId'), n('employeeId')].every(x => Number.isInteger(x) && x > 0)) throw new HttpError(400, 'Некорректные идентификаторы');
+    if (![n('lineId'), n('employeeId')].every(x => Number.isInteger(x) && x > 0) || !Number.isInteger(n('eventServiceId')) || n('eventServiceId') === 0) throw new HttpError(400, 'Некорректные идентификаторы');
     const key = `${n('eventServiceId')}:${n('lineId')}`;
     const str = (v, max) => String(v == null ? '' : v).slice(0, max);
     await sessionStub(env).draftSet(key, {

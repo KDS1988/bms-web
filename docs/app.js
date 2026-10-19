@@ -8,7 +8,7 @@
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const $ = id => document.getElementById(id);
-  const S = { view: (function () { try { return localStorage.getItem('bms_view') || 'table'; } catch (e) { return 'table'; } })(), order: {}, token: null, user: null, tab: 'board', board: null, staff: null, rates: null, month: null, all: false };
+  const S = { view: (function () { try { return localStorage.getItem('bms_view') || 'table'; } catch (e) { return 'table'; } })(), order: {}, token: null, user: null, tab: 'board', board: null, boardRaw: null, plans: [], linkFail: new Set(), lines: null, staff: null, rates: null, month: null, all: false };
 
   // ---------- утилиты
   function h(tag, attrs, ...kids) {
@@ -92,7 +92,7 @@
   }
   function setMonth(m) {
     S.month = m; try { sessionStorage.setItem('bms_month', m); } catch (e) { /* ok */ }
-    S.board = S.staff = S.rates = null;
+    S.board = S.boardRaw = S.staff = S.rates = null;
     renderMonths(); reload();
   }
 
@@ -354,10 +354,194 @@
     });
   }
   function updateBar() {
-    const n = Object.keys(draft).length;
+    const n = Object.values(draft).filter(d => d.eventServiceId > 0).length;
     $('draftbar').hidden = !n || !canEdit();
     $('draftN').textContent = n;
     fitGrid();
+  }
+
+  // ---------- мероприятия-черновики: событие уже известно, а в BMS его ещё нет
+  // Живут на сервере (видны всем). Когда мероприятие появится в BMS, в блоке вписывают его ID —
+  // и вписанные в черновике люди переносятся в настоящий блок на свободные места тех же ролей.
+  const planKey = (p, s) => (-p.id) + ':' + s.sid;
+  function planRow(p) {
+    const slots = {}; COLS.forEach(([k]) => { slots[k] = []; });
+    for (const s of p.slots) (slots[s.group] || slots.other).push({ lineId: s.sid, assignmentId: null, roleId: s.roleId, roleName: s.roleName, badges: [], employee: null, status: '', hasRate: null, logistics: null, expenseId: null, additionalIds: [] });
+    return { eventServiceId: -p.id, eventId: null, date: p.date, start: p.start, end: p.end, league: p.league, title: p.title, service: p.service,
+      cancelled: false, serviceStatus: '', additionalServices: [], additional: [], slots, contractor: null, planned: true, plan: p,
+      stats: { total: p.slots.length, filled: 0, accepted: 0, declined: 0, noRate: 0, cameras: 0, camerasFilled: 0 } };
+  }
+  function findRow(p, rows) {
+    if (!p.bmsId) return null;
+    const bySvc = rows.find(r => r.eventServiceId === p.bmsId);
+    if (bySvc) return bySvc;
+    const byEv = rows.filter(r => r.eventId === p.bmsId);
+    return byEv.find(r => r.service === p.service) || byEv[0] || null;
+  }
+  function mergePlans(raw) {
+    const rows = raw.days.flatMap(d => d.rows);
+    const days = raw.days.map(d => ({ date: d.date, rows: [...d.rows] }));
+    const leagues = new Set(raw.leagues);
+    for (const p of S.plans) {
+      if (findRow(p, rows) && !S.linkFail.has(p.id)) continue;      // уже есть в BMS — блок заменит настоящий
+      let day = days.find(d => d.date === p.date);
+      if (!day) { day = { date: p.date, rows: [] }; days.push(day); }
+      day.rows.push(planRow(p));
+      if (p.league) leagues.add(p.league);
+    }
+    days.sort((a, b) => a.date.localeCompare(b.date));
+    for (const d of days) d.rows = d.rows.map((r, i) => [r, i]).sort((a, b) => (a[0].start || '').localeCompare(b[0].start || '') || (a[0].planned ? 1 : 0) - (b[0].planned ? 1 : 0) || a[1] - b[1]).map(x => x[0]);
+    return { ...raw, days, leagues: [...leagues].sort() };
+  }
+  function repaint() { if (S.boardRaw) { S.board = mergePlans(S.boardRaw); renderBoard(); } }
+
+  function planBar(r) {
+    const p = r.plan;
+    const inp = h('input', { class: 'planid', type: 'text', inputmode: 'numeric', autocomplete: 'off', placeholder: 'ID BMS', value: p.bmsId || '',
+      title: 'Когда мероприятие появится в BMS, впишите сюда его ID (мер. или усл.) — состав перенесётся в настоящий блок' });
+    if (!canEdit()) inp.disabled = true;
+    const save = () => {
+      const v = inp.value.trim(), n = v ? Number(v) : null;
+      if (v && !(Number.isInteger(n) && n > 0)) { toast('ID — это число', true); inp.value = p.bmsId || ''; return; }
+      if ((p.bmsId || null) !== n) { S.linkFail.delete(p.id); savePlan({ ...p, bmsId: n }); }
+    };
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+    inp.addEventListener('blur', save);
+    const note = p.bmsId ? (S.linkFail.has(p.id) ? 'не все места перенесены' : 'в BMS не найдено') : '';
+    return h('div', { class: 'planbar' },
+      h('span', { class: 'ptag' }, 'черновик мероприятия'),
+      h('label', { class: 'pid' }, 'ID BMS ', inp),
+      note ? h('span', { class: 'pnote', title: S.linkFail.has(p.id) ? 'В настоящем блоке не хватило свободных мест нужных ролей' : 'Этого ID нет в загруженном месяце / услугах доски. Проверьте номер или включите «все услуги и лиги»' }, note) : null,
+      canEdit() ? h('button', { class: 'pbtn', title: 'Изменить мероприятие и состав', onclick: e => { e.stopPropagation(); openPlanModal(p); } }, '✎') : null,
+      canEdit() ? h('button', { class: 'pbtn', title: 'Удалить мероприятие-черновик', onclick: e => { e.stopPropagation(); delPlan(p); } }, '🗑') : null);
+  }
+  async function savePlan(plan) {
+    try {
+      const d = await api('/api/plans', { method: 'POST', body: plan });
+      const i = S.plans.findIndex(x => x.id === d.plan.id);
+      if (i >= 0) S.plans[i] = d.plan; else S.plans.push(d.plan);
+      repaint(); linkPlans();
+      return d.plan;
+    } catch (e) { toast(e.message, true); repaint(); return null; }
+  }
+  async function delPlan(p) {
+    const n = p.slots.filter(s => draft[planKey(p, s)]).length;
+    if (!confirm(`Удалить мероприятие-черновик «${p.title}»?` + (n ? `\nВписанные в нём люди (${n}) тоже пропадут.` : ''))) return;
+    try { await api('/api/plans/delete', { method: 'POST', body: { id: p.id } }); } catch (e) { toast(e.message, true); return; }
+    S.plans = S.plans.filter(x => x.id !== p.id);
+    p.slots.forEach(s => { delete draft[planKey(p, s)]; });
+    repaint(); updateBar(); poll(true);
+  }
+
+  // перенос состава в настоящий блок, когда ID найден в BMS
+  let linking = false;
+  const linkWarned = new Set();
+  async function linkPlans() {
+    if (linking || !canEdit() || !S.boardRaw) return;
+    const rows = S.boardRaw.days.flatMap(d => d.rows);
+    const todo = S.plans.filter(p => findRow(p, rows));
+    if (!todo.length) return;
+    linking = true;
+    try {
+      for (const p of todo) {
+        const row = findRow(p, rows), real = Object.values(row.slots).flat(), used = new Set(), left = [];
+        for (const s of p.slots) {
+          const k = planKey(p, s), d = draft[k]; if (!d) continue;
+          if (real.some(x => x.roleId === s.roleId && x.employee && x.employee.id === d.employeeId)) { await dropDrafts([k]); continue; }   // этот человек уже назначен в BMS
+          const free = real.find(x => x.roleId === s.roleId && !x.employee && !used.has(x.lineId) && !draft[keyOf(row, x)]);
+          if (!free) { left.push(`${s.roleName}: ${d.employeeName}`); continue; }
+          used.add(free.lineId);
+          await putDraft({ eventServiceId: row.eventServiceId, lineId: free.lineId, roleId: free.roleId, roleName: free.roleName, date: row.date, title: row.title,
+            employeeId: d.employeeId, employeeName: d.employeeName, state: d.state || 'free', additionalIds: [], additionalNames: [], replaceAssignmentId: null, prevName: '' });
+          await dropDrafts([k]);
+        }
+        if (left.length) {
+          S.linkFail.add(p.id);
+          if (!linkWarned.has(p.id)) { linkWarned.add(p.id); toast(`«${p.title}»: в BMS не нашлось свободных мест для: ${left.join(', ')}`, true); }
+          continue;
+        }
+        S.linkFail.delete(p.id);
+        const o = S.order[p.date];
+        if (Array.isArray(o) && p.date === row.date) {
+          let hit = false;
+          const sw = x => { if (x === -p.id) { hit = true; return row.eventServiceId; } return x; };
+          const nw = o.map(c => Array.isArray(c) ? c.map(sw) : sw(c));
+          if (hit) await saveLayout(p.date, nw);
+        }
+        await api('/api/plans/delete', { method: 'POST', body: { id: p.id } });
+        S.plans = S.plans.filter(x => x.id !== p.id);
+        toast(`«${p.title}» найдено в BMS — состав перенесён в настоящий блок`);
+      }
+    } catch (e) { toast('Не удалось перенести состав: ' + e.message, true); }
+    finally { linking = false; }
+    repaint(); updateBar();
+  }
+
+  const TPL_KEY = 'bms_plan_tpl';
+  function openPlanModal(plan) {
+    const go = async () => {
+      let lines;
+      try { lines = S.lines || (S.lines = (await api('/api/lines')).lines); } catch (e) { toast('Не удалось загрузить роли: ' + e.message, true); return; }
+      let tpl = null; try { tpl = JSON.parse(localStorage.getItem(TPL_KEY) || 'null'); } catch (e) { /* ok */ }
+      const order = COLS.map(([k]) => k);
+      const sorted = [...lines].sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group) || a.name.localeCompare(b.name, 'ru'));
+      const firstOf = {}; sorted.forEach(l => { if (!(l.group in firstOf)) firstOf[l.group] = l.id; });
+      const def = l => plan ? plan.slots.filter(s => s.roleId === l.id).length
+        : (tpl && String(l.id) in tpl ? tpl[l.id] : (l.group !== 'other' && firstOf[l.group] === l.id ? (l.group === 'cam' ? 4 : 1) : 0));
+      const today = iso(new Date());
+      const f = {
+        title: h('input', { type: 'text', placeholder: 'Например: Динамо — Спартак', value: plan ? plan.title : '' }),
+        date: h('input', { type: 'date', value: plan ? plan.date : (today.slice(0, 7) === S.month ? today : S.month + '-01') }),
+        start: h('input', { type: 'time', value: plan ? plan.start : '' }),
+        end: h('input', { type: 'time', value: plan ? plan.end : '' }),
+        league: h('input', { type: 'text', placeholder: 'КХЛ', value: plan ? plan.league : '', list: 'leagueList' }),
+        service: h('select', null, h('option', null, 'Прямая трансляция'), h('option', null, 'Студия')),
+        bms: h('input', { type: 'text', inputmode: 'numeric', placeholder: 'пусто — пока нет в BMS', value: plan && plan.bmsId ? plan.bmsId : '' }),
+      };
+      if (plan) f.service.value = plan.service;
+      const cnt = {};
+      const roleBox = h('div', { class: 'rolegrid' });
+      for (const l of sorted) {
+        cnt[l.id] = h('input', { type: 'number', min: 0, max: 12, value: def(l) });
+        roleBox.append(h('label', null, cnt[l.id], ' ', l.name));
+      }
+      const row = (label, el) => h('label', { class: 'frow' }, h('span', null, label), el);
+      const save = h('button', { class: 'primary', onclick: async () => {
+        const slots = []; const removed = [];
+        let sid = plan ? Math.max(0, ...plan.slots.map(s => s.sid)) : 0;
+        const tplOut = {};
+        for (const l of sorted) {
+          const want = Math.max(0, Math.min(12, Number(cnt[l.id].value) || 0)); tplOut[l.id] = want;
+          const have = plan ? plan.slots.filter(s => s.roleId === l.id) : [];
+          have.slice(0, want).forEach(s => slots.push(s)); removed.push(...have.slice(want));
+          for (let i = have.length; i < want; i++) slots.push({ sid: ++sid, roleId: l.id, roleName: l.name, group: l.group });
+        }
+        if (plan) plan.slots.filter(s => !lines.some(l => l.id === s.roleId)).forEach(s => slots.push(s));
+        const bms = f.bms.value.trim();
+        if (bms && !/^\d+$/.test(bms)) { toast('ID BMS — это число', true); return; }
+        save.disabled = true;
+        const body = { id: plan ? plan.id : undefined, title: f.title.value, date: f.date.value, start: f.start.value, end: f.end.value, league: f.league.value, service: f.service.value, bmsId: bms ? Number(bms) : null, slots };
+        const saved = await savePlan(body);
+        save.disabled = false;
+        if (!saved) return;
+        try { localStorage.setItem(TPL_KEY, JSON.stringify(tplOut)); } catch (e) { /* ok */ }
+        closeModal();
+        if (plan) {
+          if (removed.length) dropDrafts(removed.map(s => planKey(plan, s)));
+          if (plan.date !== saved.date || plan.title !== saved.title)      // у вписанных людей обновляем дату и название
+            for (const s of saved.slots) { const d = draft[planKey(saved, s)]; if (d) putDraft({ ...d, date: saved.date, title: saved.title }); }
+        }
+      } }, plan ? 'Сохранить' : 'Создать');
+      $('mTitle').textContent = plan ? 'Мероприятие-черновик' : 'Новое мероприятие-черновик';
+      $('mBody').replaceChildren(
+        h('p', { class: 'muted' }, 'Мероприятие, которого ещё нет в BMS. Вписывайте людей как обычно; когда оно появится в BMS — впишите его ID в блоке, и состав перенесётся.'),
+        h('div', { class: 'planform' }, row('Название', f.title), row('Дата', f.date), row('Начало', f.start), row('Конец', f.end), row('Лига', f.league), row('Услуга', f.service), row('ID BMS', f.bms)),
+        h('datalist', { id: 'leagueList' }, ...((S.board && S.board.leagues) || []).map(l => h('option', { value: l }))),
+        h('div', { class: 'muted', style: 'margin:8px 0 4px' }, 'Сколько человек нужно по ролям:'), roleBox,
+        h('div', { style: 'margin-top:10px' }, save));
+      $('modal').hidden = false; f.title.focus();
+    };
+    go();
   }
 
   // ---------- доска
@@ -382,8 +566,10 @@
     if (my !== boardReq || month !== S.month || all !== S.all) return;   // пока ждали — переключили месяц: старый ответ выбрасываем
     lastBoardAt = Date.now();
     try { S.order = (await api('/api/order', { query: { ...range() } })).orders || {}; } catch (e) { /* порядок необязателен */ }
+    try { S.plans = (await api('/api/plans', { query: { ...range() } })).plans || []; } catch (e) { /* мероприятия-черновики необязательны */ }
     if (my !== boardReq || month !== S.month || all !== S.all) return;
-    S.board = data; renderBoard();
+    S.boardRaw = data; S.board = mergePlans(data); renderBoard();
+    linkPlans();
     if (data.generatedAt) {
       const t = new Date(data.generatedAt).toLocaleTimeString('ru-RU');
       $('live').title = `Общая доска. Данные BMS от ${t}` + (data.meta ? ` · ${data.meta.items} записей, ${(data.meta.fetchMs / 1000).toFixed(1)} с на загрузку из BMS` : '');
@@ -455,8 +641,8 @@
     const head = h('div', { class: 'bhead', draggable: canDrag ? 'true' : null, title: canDrag ? 'Перетащите, чтобы поменять порядок внутри даты' : '' },
       h('div', { class: 't' }, (canDrag ? '⠿ ' : '') + (r.title || '—')),
       h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
-      h('div', { class: 'ids' }, 'мер. ' + r.eventId + ' · усл. ' + r.eventServiceId, h('span', { class: 'stat' + (full ? ' full' : '') }, ` ${r.stats.filled}/${r.stats.total}`)));
-    const card = h('div', { class: 'bcard' + (r.cancelled ? ' cancelled' : ''), 'data-es': r.eventServiceId, 'data-date': r.date }, head, ...lines);
+      r.planned ? planBar(r) : h('div', { class: 'ids' }, 'мер. ' + r.eventId + ' · усл. ' + r.eventServiceId, h('span', { class: 'stat' + (full ? ' full' : '') }, ` ${r.stats.filled}/${r.stats.total}`)));
+    const card = h('div', { class: 'bcard' + (r.cancelled ? ' cancelled' : '') + (r.planned ? ' planned' : ''), 'data-es': r.eventServiceId, 'data-date': r.date }, head, ...lines);
     if (canDrag) {
       head.addEventListener('dragstart', ev => { dragId = r.eventServiceId; dragDate = r.date; card.classList.add('dragging'); card.closest('.blocks').classList.add('dragmode'); ev.dataTransfer.effectAllowed = 'move'; try { ev.dataTransfer.setData('text/plain', String(dragId)); } catch (e) {} });
       head.addEventListener('dragend', () => { card.classList.remove('dragging'); const bl = card.closest('.blocks'); if (bl) bl.classList.remove('dragmode'); document.querySelectorAll('.bcard.over-t,.bcard.over-b,.bcol.over').forEach(c => c.classList.remove('over-t', 'over-b', 'over')); dragId = null; });
@@ -550,11 +736,11 @@
         shown++;
         for (const k of Object.keys(r.slots)) for (const s of r.slots[k]) if (draft[keyOf(r, s)] && isStale(draft[keyOf(r, s)], s)) stale.push(keyOf(r, s));
         const full = r.stats.filled >= r.stats.total;
-        tbody.append(h('tr', { class: r.cancelled ? 'cancelled' : '' },
+        tbody.append(h('tr', { class: (r.cancelled ? 'cancelled' : '') + (r.planned ? ' planned' : '') },
           h('td', { class: 'ev' },
             h('div', { class: 't' }, r.title || '—'),
             h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
-            h('div', { class: 'ids' }, h('span', { title: 'ID мероприятия' }, 'мер. ' + r.eventId), ' · ', h('span', { title: 'ID услуги' }, 'усл. ' + r.eventServiceId)),
+            r.planned ? planBar(r) : h('div', { class: 'ids' }, h('span', { title: 'ID мероприятия' }, 'мер. ' + r.eventId), ' · ', h('span', { title: 'ID услуги' }, 'усл. ' + r.eventServiceId)),
             r.contractor ? h('span', { class: 'chip contractor' }, 'подрядчик ' + r.contractor.name) : null),
           ...used.map(([k]) => {
             const sl = r.slots[k];
@@ -562,7 +748,7 @@
             if (!one) return h('td', { class: 'g' }, ...sl.map(s => slotNode(r, s)));
             return h('td', { class: 'g' }, h('div', { class: 'slot' }, h('span', { class: 'chip contractor', title: 'Все ' + sl.length + ' юнита — у подрядчика' }, sl[0].employee.name + ' ×' + sl.length)));
           }),
-          h('td', { class: 'stat' + (full ? ' full' : '') }, `${r.stats.filled}/${r.stats.total}`, r.stats.declined ? ` · отказ ${r.stats.declined}` : '')));
+          h('td', { class: 'stat' + (full ? ' full' : '') }, r.planned ? '—' : `${r.stats.filled}/${r.stats.total}`, r.stats.declined ? ` · отказ ${r.stats.declined}` : '')));
       }
     }
     $('boardOut').replaceChildren(shown
@@ -608,7 +794,7 @@
   // ---------- отправка в BMS
   // шаг 1: выбор дат, которые синхронизируем с BMS
   function sendDraft() {
-    const all = Object.entries(draft).filter(([k]) => !inflight.has(k));
+    const all = Object.entries(draft).filter(([k, d]) => !inflight.has(k) && d.eventServiceId > 0);   // черновики мероприятий без ID BMS не отправляются
     if (!all.length) return;
     const dates = [...new Set(all.map(([, d]) => d.date))].sort();
     const boxes = dates.map(dt => {
@@ -665,8 +851,8 @@
     candCache.clear(); await loadBoard(true, true); poll('full');
   }
   function clearDraft() {
-    if (!confirm('Удалить весь общий черновик? Он очистится у всех участников.')) return;
-    dropDrafts([], true).then(() => syncCells());
+    if (!confirm('Удалить весь общий черновик? Он очистится у всех участников.\n(Составы мероприятий-черновиков без ID BMS останутся.)')) return;
+    dropDrafts(Object.keys(draft).filter(k => draft[k].eventServiceId > 0)).then(() => syncCells());
   }
   function closeModal() { $('modal').hidden = true; }
 
@@ -734,6 +920,7 @@
     $('login').hidden = true; $('top').hidden = false;
     $('who').textContent = `${S.user.name} · ${{ admin: 'админ', editor: 'редактор', viewer: 'просмотр' }[S.user.role]}`;
     $('tab-admin').hidden = S.user.role !== 'admin';
+    $('addPlan').hidden = !canEdit();
     if (!S.month) { try { S.month = sessionStorage.getItem('bms_month'); } catch (e) { /* ok */ } }
     if (!S.month) S.month = curMonth();
     renderMonths(); showTab('board');
@@ -750,12 +937,13 @@
     $('logout').onclick = logout; $('mClose').onclick = closeModal;
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
-    $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = null; reload(); });
+    $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = S.boardRaw = null; reload(); });
     const setView = () => { $('viewToggle').textContent = S.view === 'blocks' ? '☷ Таблица' : '▦ Блоки'; };
     $('viewToggle').onclick = () => { S.view = S.view === 'blocks' ? 'table' : 'blocks'; try { localStorage.setItem('bms_view', S.view); } catch (e) {} setView(); if (S.board) renderBoard(); };
     setView();
     $('collapseAll').onclick = () => { (S.board ? S.board.days : []).forEach(d => collapsed.add(d.date)); saveCollapsed(); if (S.board) renderBoard(); };
     $('expandAll').onclick = () => { collapsed.clear(); saveCollapsed(); if (S.board) renderBoard(); };
+    $('addPlan').onclick = () => openPlanModal(null);
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
     document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
     window.addEventListener('resize', fitGrid);

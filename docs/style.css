@@ -170,3 +170,18 @@ tr.dayrow .tg{display:inline-block;width:1.1em;color:var(--acc)}
 .utable td{padding:5px 12px 5px 0;border-bottom:1px solid var(--line);vertical-align:middle}
 
 .themebtn{font-size:16px;line-height:1;padding:4px 8px;cursor:pointer}
+
+/* мероприятия-черновики (ещё нет в BMS) */
+.bcard.planned{border-style:dashed}
+tr.planned td.ev{border-left:3px dashed var(--mut)}
+.planbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:3px}
+.planbar .ptag{font-size:11px;padding:1px 6px;border:1px dashed var(--mut);border-radius:10px;color:var(--mut)}
+.planbar .pid{font-size:11px;color:var(--mut);display:flex;align-items:center;gap:4px}
+.planid{width:86px;padding:2px 6px;font:12px ui-monospace,Menlo,monospace}
+.planbar .pnote{font-size:11px;color:var(--warn,#d99a2b)}
+.pbtn{padding:0 6px;line-height:20px}
+.planform{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.frow{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--mut)}
+.rolegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;max-height:46vh;overflow:auto}
+.rolegrid label{display:flex;align-items:center;gap:6px;font-size:13px}
+.rolegrid input{width:48px}

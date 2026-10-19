@@ -256,3 +256,16 @@ test('кандидаты из employee_list: свободные, занятые,
   assert.deepEqual(c.map(x => x.state), ['free', 'busy', 'off']);
   assert.equal(c[0].category, '***');
 });
+
+test('мероприятие-черновик: проверка полей и поиск строки BMS по ID', async () => {
+  const { sanitizePlan, findBmsRow } = await import('../src/plans.js');
+  assert.ok(sanitizePlan({ title: '', date: '2026-11-01', slots: [] }).error);
+  assert.ok(sanitizePlan({ title: 'А — Б', date: '2026-11-01', slots: [] }).error);
+  const ok = sanitizePlan({ title: 'А — Б', date: '2026-11-01', start: '18:30', bmsId: '77', slots: [{ sid: 1, roleId: 5, roleName: 'Режиссер' }, { sid: 1, roleId: 6 }, { sid: 2, roleId: -1 }] });
+  assert.equal(ok.plan.slots.length, 1);
+  assert.equal(ok.plan.bmsId, 77);
+  const rows = [{ eventServiceId: 10, eventId: 77, service: 'Студия' }, { eventServiceId: 11, eventId: 77, service: 'Прямая трансляция' }];
+  assert.equal(findBmsRow({ bmsId: 77, service: 'Прямая трансляция' }, rows).eventServiceId, 11);
+  assert.equal(findBmsRow({ bmsId: 10, service: 'Прямая трансляция' }, rows).eventServiceId, 10);
+  assert.equal(findBmsRow({ bmsId: null }, rows), null);
+});

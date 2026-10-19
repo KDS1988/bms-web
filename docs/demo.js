@@ -43,7 +43,7 @@
     return rows;
   }
 
-  let dv = 1; const dstore = {}; const ostore = {};
+  let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0;
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/board') {
@@ -64,6 +64,10 @@
     }
     if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
     if (path.startsWith('/api/admin/users/')) return { ok: true };
+    if (path === '/api/lines') return { lines: Object.entries(ROLES).map(([g, n], i) => ({ id: i + 1, name: n, group: g })) };
+    if (path === '/api/plans' && (opts.method || 'GET') === 'GET') return { plans: plans.filter(p => p.date >= q.from && p.date <= q.to) };
+    if (path === '/api/plans') { const b = opts.body; const i = plans.findIndex(p => p.id === b.id); const rec = { ...b, id: b.id || ++pseq, by: 'Демо' }; if (i >= 0) plans[i] = rec; else plans.push(rec); return { plan: rec }; }
+    if (path === '/api/plans/delete') { const i = plans.findIndex(p => p.id === opts.body.id); if (i >= 0) plans.splice(i, 1); Object.keys(dstore).forEach(k => { if (k.startsWith('-' + opts.body.id + ':')) delete dstore[k]; }); dv++; return { ok: true }; }
     if (path === '/api/order') { if ((opts.method || 'GET') === 'POST') { ostore[opts.body.date] = opts.body.ids; return { ok: true }; } return { orders: ostore }; }
     if (path === '/api/draft') {
       if ((opts.method || 'GET') === 'GET') return q && q.since !== undefined && Number(q.since) === dv ? { version: dv, boardVersion: 0, unchanged: true } : { version: dv, boardVersion: 0, drafts: dstore };

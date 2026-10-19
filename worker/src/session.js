@@ -169,6 +169,33 @@ export class BmsSession extends DurableObject {
     await this.ctx.storage.put({ order: all, lw: Date.now(), bv: ((await this.ctx.storage.get('bv')) || 0) + 1 });
   }
 
+  // ---- мероприятия-черновики (ещё нет в BMS); id растёт, в черновике ключ строится как «-id:sid»
+  async plansGet(from, to) {
+    const all = (await this.ctx.storage.get('plans')) || {};
+    return Object.values(all).filter(p => p.date >= from && p.date <= to);
+  }
+
+  async planSave(id, plan, by) {
+    const all = (await this.ctx.storage.get('plans')) || {};
+    let seq = (await this.ctx.storage.get('planSeq')) || 0;
+    if (id) { if (!all[id]) return null; } else id = ++seq;
+    all[id] = { ...(all[id] || {}), ...plan, id, by, at: new Date().toISOString() };
+    await this.ctx.storage.put({ plans: all, planSeq: seq, bv: ((await this.ctx.storage.get('bv')) || 0) + 1 });
+    return all[id];
+  }
+
+  async planDelete(id) {
+    const all = (await this.ctx.storage.get('plans')) || {};
+    if (!all[id]) return;
+    delete all[id];
+    const drafts = (await this.ctx.storage.get('drafts')) || {};
+    let changed = false;
+    for (const k of Object.keys(drafts)) if (k.startsWith(`-${id}:`)) { delete drafts[k]; changed = true; }
+    const put = { plans: all, bv: ((await this.ctx.storage.get('bv')) || 0) + 1 };
+    if (changed) { put.drafts = drafts; put.dv = ((await this.ctx.storage.get('dv')) || 0) + 1; }
+    await this.ctx.storage.put(put);
+  }
+
   // ---- снимки доски (сжатый JSON): отдаём мгновенно, обновляем в фоне
   async snapGet(key) {
     const [v, lw] = await Promise.all([this.ctx.storage.get('snap:' + key), this.ctx.storage.get('lw')]);
