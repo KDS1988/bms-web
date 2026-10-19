@@ -283,3 +283,10 @@ test('доска: город, вид спорта, информация и от�
   const r2 = buildBoard([it2], { all: true }).days[0].rows[0];
   assert.equal(r2.title, 'Съемка ролика'); assert.equal(r2.info, '');
 });
+
+test('доска: статус not_appointed из BMS считается отказом', () => {
+  const it = item(); it.event_service_lines[0].assignment_technical.status = 'not_appointed';
+  const r = buildBoard([it]).days[0].rows[0];
+  assert.equal(r.slots.vr[0].status, 'declined');
+  assert.equal(r.stats.declined, 1);
+});

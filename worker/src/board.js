@@ -62,7 +62,10 @@ function executorOf(line) {
 
 function statusOf(line) {
   const at = line.assignment_technical;
-  return at && at.employee ? (at.status || 'pending') : '';
+  if (!(at && at.employee)) return '';
+  // статусы BMS: pending — ждёт ответа, appointed — принял, not_appointed — отказался
+  const st = at.status || 'pending';
+  return st === 'not_appointed' ? 'declined' : st;
 }
 
 function badgesFor(item, groupKey) {
