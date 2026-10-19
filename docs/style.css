@@ -78,7 +78,7 @@ td.ev .t{font-weight:600}td.ev .m{color:var(--mut);font-size:12px}
 .cellin.draft{background:color-mix(in srgb,var(--mut) 32%,var(--panel));color:var(--txt);font-weight:600}
 .cellin.draft.warnc{box-shadow:inset 0 0 0 1px var(--badt)}
 .cellin.err{background:var(--bad);color:var(--badt)}
-.draftbar{position:sticky;top:48px;z-index:6;display:flex;gap:10px;align-items:center;background:var(--wait);color:var(--waitt);padding:8px 12px;border-radius:8px;margin-bottom:10px}
+.draftbar{position:sticky;top:calc(var(--hh,48px) + var(--fh,0px));z-index:6;display:flex;gap:10px;align-items:center;background:var(--wait);color:var(--waitt);padding:8px 12px;border-radius:8px;margin-bottom:10px}
 .draftbar b{margin-right:2px}
 .pop{position:fixed;z-index:40;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px #0006;max-height:300px;overflow:auto;padding:3px}
 .pop .opt{padding:6px 8px;border-radius:5px;cursor:pointer;white-space:nowrap}
@@ -185,3 +185,6 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 .rolegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:4px 12px;max-height:46vh;overflow:auto}
 .rolegrid label{display:flex;align-items:center;gap:6px;font-size:13px}
 .rolegrid input{width:48px}
+
+/* строка фильтров доски закреплена под верхней панелью */
+#view-board .filters{position:sticky;top:var(--hh,48px);z-index:5;margin:0 -16px 10px;padding:8px 16px;background:var(--bg);border-bottom:1px solid var(--line)}

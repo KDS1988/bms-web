@@ -347,7 +347,15 @@
     document.querySelectorAll('#boardOut .cellin').forEach(i => { if (document.activeElement !== i && i._look) i._look(); });
   }
   // таблица скроллится внутри себя на всю высоту экрана — шапка и колонка «Мероприятие» остаются на месте
+  // верхняя панель и строка фильтров закреплены: запоминаем их высоту для CSS
+  function setStick() {
+    const hd = $('top'), fl = document.querySelector('#view-board .filters'), r = document.documentElement.style;
+    r.setProperty('--hh', (hd && !hd.hidden ? hd.offsetHeight : 0) + 'px');
+    r.setProperty('--fh', (fl && fl.offsetParent ? fl.offsetHeight : 0) + 'px');
+  }
+  window.addEventListener('resize', setStick);
   function fitGrid() {
+    setStick();
     document.querySelectorAll('#boardOut .tablewrap, #staffOut .tablewrap, #ratesOut .tablewrap').forEach(w => {
       const top = Math.max(0, w.getBoundingClientRect().top);
       w.style.maxHeight = Math.max(220, window.innerHeight - top - 12) + 'px';
