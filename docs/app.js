@@ -45,11 +45,21 @@
   async function api(path, { method = 'GET', body, query } = {}) {
     if (DEMO) return window.DEMO(path, { method, body }, query || (body || {}));
     const qs = query ? '?' + new URLSearchParams(query).toString() : '';
-    const r = await fetch(CFG.API_URL + path + qs, {
+    const doFetch = () => fetch(CFG.API_URL + path + qs, {
       method,
       headers: { ...(S.token ? { authorization: 'Bearer ' + S.token } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
+    let r;
+    try { r = await doFetch(); }
+    catch (err) {
+      // «Failed to fetch»: ответа от сервера не было вовсе (сеть, VPN, блокировка, обрыв). Чтение безопасно повторить; запись — нет
+      if (method === 'GET') { await new Promise(ok => setTimeout(ok, 900)); try { r = await doFetch(); } catch (err2) { err = err2; } }
+      if (!r) {
+        const e = new Error('Нет ответа от сервера (' + (err && err.message || 'сеть') + '). Проверьте интернет, отключите VPN / блокировщики рекламы или попробуйте другую сеть.');
+        e.network = true; throw e;
+      }
+    }
     let data = {}; try { data = await r.json(); } catch (e) { /* пусто */ }
     if (r.status === 401 && S.token) { logout(); throw new Error('Сессия истекла — войдите заново'); }
     if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; e.status = r.status; throw e; }
@@ -592,11 +602,28 @@
     }
     return true;
   }
+  // если месяц целиком не загрузился из-за сети — грузим понедельно: ответы маленькие и не рвутся
+  async function fetchBoard(q) {
+    try { return await api('/api/board', { query: q }); }
+    catch (e) {
+      if (!e.network) throw e;
+      const day = 864e5, parts = [];
+      for (let d = new Date(q.from + 'T00:00:00Z'); iso(d) <= q.to; d = new Date(d.getTime() + 7 * day)) {
+        const b = iso(new Date(d.getTime() + 6 * day));
+        parts.push({ ...q, from: iso(d), to: b < q.to ? b : q.to });
+      }
+      const res = [];
+      for (const pq of parts) res.push(await api('/api/board', { query: pq }));
+      banner('Сеть нестабильна: доска загружена по неделям. Если так всегда — проверьте VPN, блокировщики или смените сеть.');
+      return { days: res.flatMap(x => x.days), leagues: [...new Set(res.flatMap(x => x.leagues))].sort(), total: res.reduce((n, x) => n + x.total, 0),
+        stale: res.some(x => x.stale), generatedAt: Math.min(...res.map(x => x.generatedAt || Date.now())) };
+    }
+  }
   let boardReq = 0, staleRetries = 0;
   async function loadBoard(silent, fresh) {
     const my = ++boardReq, month = S.month, all = S.all;
     const q = { ...range() }; if (all) q.all = '1'; if (fresh) q.fresh = '1';
-    const data = await api('/api/board', { query: q });
+    const data = await fetchBoard(q);
     if (my !== boardReq || month !== S.month || all !== S.all) return;   // пока ждали — переключили месяц: старый ответ выбрасываем
     lastBoardAt = Date.now();
     try { S.order = (await api('/api/order', { query: { ...range() } })).orders || {}; } catch (e) { /* порядок необязателен */ }
