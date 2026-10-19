@@ -328,7 +328,7 @@
       } else if (editable && !isContractor && d) {
         kids.push(cellInput(row, slot, render));
       } else {
-        const isCon = row.contractor && row.contractor.name === slot.employee.name;
+        const isCon = isContractor || (row.contractor && row.contractor.name === slot.employee.name);   // подрядчик всегда синий
         const cls = isCon ? 'contractor' : (slot.status || 'pending');
         const can = editable && !isContractor;
         kids.push(h('span', { class: 'chip ' + cls + (can ? ' editable' : ''),
