@@ -124,6 +124,10 @@ export function buildRow(item) {
   const allSlots = Object.values(slotsByGroup).flat();
   const filled = allSlots.filter(s => s.employee).length;
 
+  const title = eventTitle(ev);
+  const clean = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
+  // «информация» мероприятия в BMS: дополнительная информация и описание (без повтора названия)
+  const info = [clean(ev.additional_info), clean(ev.event_description)].filter((s, i, a) => s && s !== title && a.indexOf(s) === i).join(' · ');
   return {
     eventServiceId: item.id,
     eventId: ev.id,
@@ -131,7 +135,10 @@ export function buildRow(item) {
     start: ev.start_time ? ev.start_time.substring(0, 5) : '',
     end: ev.end_time ? ev.end_time.substring(0, 5) : '',
     league: ev.league ? ev.league.short_name : '',
-    title: eventTitle(ev),
+    title,
+    city: clean(ev.city || (ev.location && ev.location.city)),
+    sport: clean(ev.sport_type && ev.sport_type.name),
+    info,
     service: item.service ? item.service.name : '',
     cancelled: !!(item.service_status && String(item.service_status).indexOf('Отмен') === 0),
     serviceStatus: item.service_status || '',

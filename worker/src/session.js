@@ -184,10 +184,26 @@ export class BmsSession extends DurableObject {
     return all[id];
   }
 
+  // ---- паровозик (командировка): ключ «e<id мероприятия>» или «p<id черновика>»
+  async tripsGet(from, to) {
+    const all = (await this.ctx.storage.get('trips')) || {};
+    return Object.keys(all).filter(k => all[k].date >= from && all[k].date <= to);
+  }
+
+  async tripSet(key, date, on, by) {
+    const all = (await this.ctx.storage.get('trips')) || {};
+    if (on) all[key] = { date, by, at: new Date().toISOString() }; else delete all[key];
+    const keys = Object.keys(all).sort((a, b) => all[a].date.localeCompare(all[b].date));
+    while (keys.length > 3000) delete all[keys.shift()];
+    await this.ctx.storage.put({ trips: all, bv: ((await this.ctx.storage.get('bv')) || 0) + 1 });
+  }
+
   async planDelete(id) {
     const all = (await this.ctx.storage.get('plans')) || {};
     if (!all[id]) return;
     delete all[id];
+    const trips = (await this.ctx.storage.get('trips')) || {};
+    if (trips['p' + id]) { delete trips['p' + id]; await this.ctx.storage.put('trips', trips); }
     const drafts = (await this.ctx.storage.get('drafts')) || {};
     let changed = false;
     for (const k of Object.keys(drafts)) if (k.startsWith(`-${id}:`)) { delete drafts[k]; changed = true; }

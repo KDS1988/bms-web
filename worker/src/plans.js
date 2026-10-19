@@ -27,7 +27,7 @@ export function sanitizePlan(b) {
   return {
     plan: {
       date: str(b.date, 10), start: time(b.start), end: time(b.end),
-      league: str(b.league, 40), title, service: SERVICES.includes(b.service) ? b.service : SERVICES[0],
+      league: str(b.league, 40), city: str(b.city, 60), sport: str(b.sport, 40), info: str(b.info, 200), title, service: SERVICES.includes(b.service) ? b.service : SERVICES[0],
       bmsId: Number.isInteger(bmsId) && bmsId > 0 ? bmsId : null,
       slots,
     },

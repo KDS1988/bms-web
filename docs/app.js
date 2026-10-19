@@ -8,7 +8,7 @@
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
   const $ = id => document.getElementById(id);
-  const S = { view: (function () { try { return localStorage.getItem('bms_view') || 'table'; } catch (e) { return 'table'; } })(), order: {}, token: null, user: null, tab: 'board', board: null, boardRaw: null, plans: [], linkFail: new Set(), lines: null, staff: null, rates: null, month: null, all: false };
+  const S = { view: (function () { try { return localStorage.getItem('bms_view') || 'table'; } catch (e) { return 'table'; } })(), order: {}, token: null, user: null, tab: 'board', board: null, boardRaw: null, plans: [], trips: {}, linkFail: new Set(), lines: null, staff: null, rates: null, month: null, all: false };
 
   // ---------- утилиты
   function h(tag, attrs, ...kids) {
@@ -368,6 +368,25 @@
     fitGrid();
   }
 
+  // ---------- подписи мероприятия: «отмена», город · вид спорта · …, информация из BMS, паровозик (командировка)
+  const metaLine = r => [r.start && (r.start + (r.end ? '–' + r.end : '')), r.city, r.sport, r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ');
+  const cancelTag = r => (r.cancelled ? h('span', { class: 'canceltag', title: r.serviceStatus }, 'отмена') : null);
+  const infoNode = r => (r.info ? h('div', { class: 'info', title: r.info }, r.info) : null);
+  const tripKey = r => (r.planned ? 'p' + r.plan.id : 'e' + r.eventId);
+  async function toggleTrip(r) {
+    const key = tripKey(r), on = !S.trips[key];
+    if (on) S.trips[key] = true; else delete S.trips[key];
+    repaint();
+    try { await api('/api/trips', { method: 'POST', body: { key, date: r.date, on } }); }
+    catch (e) { if (on) delete S.trips[key]; else S.trips[key] = true; toast(e.message, true); repaint(); }
+  }
+  function tripBtn(r) {
+    const on = !!S.trips[tripKey(r)];
+    if (!on && !canEdit()) return null;
+    return h('button', { class: 'tripbtn' + (on ? ' on' : ''), title: on ? 'Командировка: на этом мероприятии нужна. Нажмите, чтобы убрать' : 'Поставить паровозик: на этом мероприятии будет командировка',
+      onclick: e => { e.stopPropagation(); if (canEdit()) toggleTrip(r); } }, '🚂');
+  }
+
   // ---------- мероприятия-черновики: событие уже известно, а в BMS его ещё нет
   // Живут на сервере (видны всем). Когда мероприятие появится в BMS, в блоке вписывают его ID —
   // и вписанные в черновике люди переносятся в настоящий блок на свободные места тех же ролей.
@@ -375,7 +394,7 @@
   function planRow(p) {
     const slots = {}; COLS.forEach(([k]) => { slots[k] = []; });
     for (const s of p.slots) (slots[s.group] || slots.other).push({ lineId: s.sid, assignmentId: null, roleId: s.roleId, roleName: s.roleName, badges: [], employee: null, status: '', hasRate: null, logistics: null, expenseId: null, additionalIds: [] });
-    return { eventServiceId: -p.id, eventId: null, date: p.date, start: p.start, end: p.end, league: p.league, title: p.title, service: p.service,
+    return { eventServiceId: -p.id, eventId: null, date: p.date, start: p.start, end: p.end, league: p.league, city: p.city || '', sport: p.sport || '', info: p.info || '', title: p.title, service: p.service,
       cancelled: false, serviceStatus: '', additionalServices: [], additional: [], slots, contractor: null, planned: true, plan: p,
       stats: { total: p.slots.length, filled: 0, accepted: 0, declined: 0, noRate: 0, cameras: 0, camerasFilled: 0 } };
   }
@@ -476,6 +495,10 @@
           const nw = o.map(c => Array.isArray(c) ? c.map(sw) : sw(c));
           if (hit) await saveLayout(p.date, nw);
         }
+        if (S.trips['p' + p.id] && row.eventId) {          // паровозик переезжает на настоящее мероприятие
+          S.trips['e' + row.eventId] = true; delete S.trips['p' + p.id];
+          await api('/api/trips', { method: 'POST', body: { key: 'e' + row.eventId, date: row.date, on: true } });
+        }
         await api('/api/plans/delete', { method: 'POST', body: { id: p.id } });
         S.plans = S.plans.filter(x => x.id !== p.id);
         toast(`«${p.title}» найдено в BMS — состав перенесён в настоящий блок`);
@@ -503,6 +526,9 @@
         start: h('input', { type: 'time', value: plan ? plan.start : '' }),
         end: h('input', { type: 'time', value: plan ? plan.end : '' }),
         league: h('input', { type: 'text', placeholder: 'КХЛ', value: plan ? plan.league : '', list: 'leagueList' }),
+        city: h('input', { type: 'text', placeholder: 'Москва', value: plan ? plan.city || '' : '' }),
+        sport: h('input', { type: 'text', placeholder: 'Хоккей', value: plan ? plan.sport || '' : '' }),
+        info: h('input', { type: 'text', placeholder: 'Коротко: что за мероприятие', value: plan ? plan.info || '' : '' }),
         service: h('select', null, h('option', null, 'Прямая трансляция'), h('option', null, 'Студия')),
         bms: h('input', { type: 'text', inputmode: 'numeric', placeholder: 'пусто — пока нет в BMS', value: plan && plan.bmsId ? plan.bmsId : '' }),
       };
@@ -528,7 +554,7 @@
         const bms = f.bms.value.trim();
         if (bms && !/^\d+$/.test(bms)) { toast('ID BMS — это число', true); return; }
         save.disabled = true;
-        const body = { id: plan ? plan.id : undefined, title: f.title.value, date: f.date.value, start: f.start.value, end: f.end.value, league: f.league.value, service: f.service.value, bmsId: bms ? Number(bms) : null, slots };
+        const body = { id: plan ? plan.id : undefined, title: f.title.value, date: f.date.value, start: f.start.value, end: f.end.value, league: f.league.value, city: f.city.value, sport: f.sport.value, info: f.info.value, service: f.service.value, bmsId: bms ? Number(bms) : null, slots };
         const saved = await savePlan(body);
         save.disabled = false;
         if (!saved) return;
@@ -543,7 +569,7 @@
       $('mTitle').textContent = plan ? 'Мероприятие-черновик' : 'Новое мероприятие-черновик';
       $('mBody').replaceChildren(
         h('p', { class: 'muted' }, 'Мероприятие, которого ещё нет в BMS. Вписывайте людей как обычно; когда оно появится в BMS — впишите его ID в блоке, и состав перенесётся.'),
-        h('div', { class: 'planform' }, row('Название', f.title), row('Дата', f.date), row('Начало', f.start), row('Конец', f.end), row('Лига', f.league), row('Услуга', f.service), row('ID BMS', f.bms)),
+        h('div', { class: 'planform' }, row('Название', f.title), row('Дата', f.date), row('Начало', f.start), row('Конец', f.end), row('Лига', f.league), row('Город', f.city), row('Вид спорта', f.sport), row('Информация', f.info), row('Услуга', f.service), row('ID BMS', f.bms)),
         h('datalist', { id: 'leagueList' }, ...((S.board && S.board.leagues) || []).map(l => h('option', { value: l }))),
         h('div', { class: 'muted', style: 'margin:8px 0 4px' }, 'Сколько человек нужно по ролям:'), roleBox,
         h('div', { style: 'margin-top:10px' }, save));
@@ -561,7 +587,7 @@
     if (f.gaps && r.stats.filled >= r.stats.total) return false;
     if (f.problems && !(r.stats.declined || r.stats.noRate)) return false;
     if (f.q) {
-      const hay = lower([r.title, r.league, ...Object.values(r.slots).flat().map(s => s.employee && s.employee.name)].join(' '));
+      const hay = lower([r.title, r.league, r.city, r.sport, r.info, ...Object.values(r.slots).flat().map(s => s.employee && s.employee.name)].join(' '));
       if (!hay.includes(f.q)) return false;
     }
     return true;
@@ -574,7 +600,7 @@
     if (my !== boardReq || month !== S.month || all !== S.all) return;   // пока ждали — переключили месяц: старый ответ выбрасываем
     lastBoardAt = Date.now();
     try { S.order = (await api('/api/order', { query: { ...range() } })).orders || {}; } catch (e) { /* порядок необязателен */ }
-    try { S.plans = (await api('/api/plans', { query: { ...range() } })).plans || []; } catch (e) { /* мероприятия-черновики необязательны */ }
+    try { const pl = await api('/api/plans', { query: { ...range() } }); S.plans = pl.plans || []; S.trips = {}; (pl.trips || []).forEach(k => { S.trips[k] = true; }); } catch (e) { /* черновики и паровозики необязательны */ }
     if (my !== boardReq || month !== S.month || all !== S.all) return;
     S.boardRaw = data; S.board = mergePlans(data); renderBoard();
     linkPlans();
@@ -647,8 +673,9 @@
     const full = r.stats.filled >= r.stats.total;
     const canDrag = canEdit();
     const head = h('div', { class: 'bhead', draggable: canDrag ? 'true' : null, title: canDrag ? 'Перетащите, чтобы поменять порядок внутри даты' : '' },
-      h('div', { class: 't' }, (canDrag ? '⠿ ' : '') + (r.title || '—')),
-      h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
+      h('div', { class: 't' }, (canDrag ? '⠿ ' : ''), cancelTag(r), r.title || '—', tripBtn(r)),
+      h('div', { class: 'm' }, metaLine(r)),
+      infoNode(r),
       r.planned ? planBar(r) : h('div', { class: 'ids' }, 'мер. ' + r.eventId + ' · усл. ' + r.eventServiceId, h('span', { class: 'stat' + (full ? ' full' : '') }, ` ${r.stats.filled}/${r.stats.total}`)));
     const card = h('div', { class: 'bcard' + (r.cancelled ? ' cancelled' : '') + (r.planned ? ' planned' : ''), 'data-es': r.eventServiceId, 'data-date': r.date }, head, ...lines);
     if (canDrag) {
@@ -746,8 +773,9 @@
         const full = r.stats.filled >= r.stats.total;
         tbody.append(h('tr', { class: (r.cancelled ? 'cancelled' : '') + (r.planned ? ' planned' : '') },
           h('td', { class: 'ev' },
-            h('div', { class: 't' }, r.title || '—'),
-            h('div', { class: 'm' }, [r.start && (r.start + (r.end ? '–' + r.end : '')), r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ')),
+            h('div', { class: 't' }, cancelTag(r), r.title || '—', tripBtn(r)),
+            h('div', { class: 'm' }, metaLine(r)),
+            infoNode(r),
             r.planned ? planBar(r) : h('div', { class: 'ids' }, h('span', { title: 'ID мероприятия' }, 'мер. ' + r.eventId), ' · ', h('span', { title: 'ID услуги' }, 'усл. ' + r.eventServiceId)),
             r.contractor ? h('span', { class: 'chip contractor' }, 'подрядчик ' + r.contractor.name) : null),
           ...used.map(([k]) => {

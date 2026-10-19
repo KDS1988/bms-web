@@ -34,7 +34,7 @@
         rows.push({
           eventServiceId: id, eventId: id, date: iso(d), start: h + ':00', end: (h + 3) + ':00',
           league: rnd() > .5 ? 'КХЛ' : 'РПЛ', title: t[0] + ' — ' + t[1], service: 'Прямая трансляция',
-          cancelled: false, serviceStatus: '', additional: ['МОБ'], additionalServices: [{ id: 11, short: 'МОБ', name: 'Мобильная бригада' }, { id: 12, short: 'ЗАЯВ', name: 'Заявка' }, { id: 13, short: 'ФЛЕШ', name: 'Флеш-интервью' }], slots, contractor: null,
+          cancelled: i === 1 && id % 3 === 0, serviceStatus: i === 1 && id % 3 === 0 ? 'Отменена' : 'Подтверждена', city: ['Москва', 'Казань', 'Омск'][id % 3], sport: 'Хоккей', info: id % 2 ? 'Матч регулярного чемпионата, 1/8 финала' : '', additional: ['МОБ'], additionalServices: [{ id: 11, short: 'МОБ', name: 'Мобильная бригада' }, { id: 12, short: 'ЗАЯВ', name: 'Заявка' }, { id: 13, short: 'ФЛЕШ', name: 'Флеш-интервью' }], slots, contractor: null,
           stats: { total, filled, accepted: acc, declined: dec, noRate, cameras: 3, camerasFilled: slots.cam.filter(s => s.employee).length },
         });
         id++;
@@ -43,7 +43,7 @@
     return rows;
   }
 
-  let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0;
+  let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {};
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/board') {
@@ -65,7 +65,8 @@
     if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
     if (path.startsWith('/api/admin/users/')) return { ok: true };
     if (path === '/api/lines') return { lines: Object.entries(ROLES).map(([g, n], i) => ({ id: i + 1, name: n, group: g })) };
-    if (path === '/api/plans' && (opts.method || 'GET') === 'GET') return { plans: plans.filter(p => p.date >= q.from && p.date <= q.to) };
+    if (path === '/api/trips') { if (opts.body.on) tstore[opts.body.key] = 1; else delete tstore[opts.body.key]; return { ok: true }; }
+    if (path === '/api/plans' && (opts.method || 'GET') === 'GET') return { plans: plans.filter(p => p.date >= q.from && p.date <= q.to), trips: Object.keys(tstore) };
     if (path === '/api/plans') { const b = opts.body; const i = plans.findIndex(p => p.id === b.id); const rec = { ...b, id: b.id || ++pseq, by: 'Демо' }; if (i >= 0) plans[i] = rec; else plans.push(rec); return { plan: rec }; }
     if (path === '/api/plans/delete') { const i = plans.findIndex(p => p.id === opts.body.id); if (i >= 0) plans.splice(i, 1); Object.keys(dstore).forEach(k => { if (k.startsWith('-' + opts.body.id + ':')) delete dstore[k]; }); dv++; return { ok: true }; }
     if (path === '/api/order') { if ((opts.method || 'GET') === 'POST') { ostore[opts.body.date] = opts.body.ids; return { ok: true }; } return { orders: ostore }; }

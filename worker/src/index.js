@@ -269,7 +269,16 @@ async function route(req, env, url, ctx) {
   // ---- мероприятия-черновики
   if (path === '/api/plans' && req.method === 'GET') {
     need('viewer'); checkRange(from, to);
-    return { plans: await sessionStub(env).plansGet(from, to) };
+    const st = sessionStub(env);
+    const [plans, trips] = await Promise.all([st.plansGet(from, to), st.tripsGet(from, to)]);
+    return { plans, trips };
+  }
+  if (path === '/api/trips' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    if (!/^[ep]\d{1,12}$/.test(String(b.key || '')) || !ISO.test(b.date || '')) throw new HttpError(400, 'Некорректные данные');
+    await sessionStub(env).tripSet(String(b.key), b.date, b.on === true, user.name || user.email);
+    return { ok: true };
   }
   if (path === '/api/plans' && req.method === 'POST') {
     need('editor');

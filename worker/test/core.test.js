@@ -269,3 +269,17 @@ test('мероприятие-черновик: проверка полей и п
   assert.equal(findBmsRow({ bmsId: 10, service: 'Прямая трансляция' }, rows).eventServiceId, 10);
   assert.equal(findBmsRow({ bmsId: null }, rows), null);
 });
+
+test('доска: город, вид спорта, информация и отмена', () => {
+  const it = item({ service_status: 'Отменена' });
+  Object.assign(it.event, { city: 'Казань', sport_type: { name: 'Хоккей' }, additional_info: 'Плей-офф', event_description: 'Матч 3' });
+  const r = buildBoard([it]).days[0].rows[0];
+  assert.equal(r.city, 'Казань');
+  assert.equal(r.sport, 'Хоккей');
+  assert.equal(r.info, 'Плей-офф · Матч 3');
+  assert.equal(r.cancelled, true);
+  // без команд название берётся из информации — повторять её не нужно
+  const it2 = item(); Object.assign(it2.event, { home_team: null, away_team: null, additional_info: 'Съемка ролика' });
+  const r2 = buildBoard([it2], { all: true }).days[0].rows[0];
+  assert.equal(r2.title, 'Съемка ролика'); assert.equal(r2.info, '');
+});
