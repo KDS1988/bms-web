@@ -3,6 +3,7 @@
   const CFG = window.BMS_CONFIG || {};
   const DEMO = new URLSearchParams(location.search).get('demo') === '1';
   const COLS = [['vr', 'ВР'], ['prod', 'Прод'], ['dir', 'Реж'], ['replay', 'Повт'], ['gfx', 'Титры'], ['sound', 'Звук'], ['eng', 'Инж'], ['cam', 'Опер'], ['other', 'Др.']];
+  const CONTRACTOR_RE = /^(ИП|СЗ|АНО|ООО|ОГАУ)(\s|$)/i;     // как на сервере: подрядчик определяется по названию
   const STATUS = { appointed: 'принял', pending: 'ждёт ответа', declined: 'отказ' };
   const STATE_LABEL = { free: 'свободен', busy: 'занят', off: 'не может' };
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
@@ -328,7 +329,7 @@
       } else if (editable && !isContractor && d) {
         kids.push(cellInput(row, slot, render));
       } else {
-        const isCon = isContractor || (row.contractor && row.contractor.name === slot.employee.name);   // подрядчик всегда синий
+        const isCon = isContractor || CONTRACTOR_RE.test(slot.employee.name) || (row.contractor && row.contractor.name === slot.employee.name);   // подрядчик всегда синий
         const cls = isCon ? 'contractor' : (slot.status || 'pending');
         const can = editable && !isContractor;
         kids.push(h('span', { class: 'chip ' + cls + (can ? ' editable' : ''),
@@ -596,7 +597,7 @@
     if (f.league && r.league !== f.league) return false;
     if (f.gaps && r.stats.filled >= r.stats.total) return false;
     if (f.problems && !(r.stats.declined || r.stats.noRate)) return false;
-    if (f.pending && !Object.values(r.slots).flat().some(x => x.employee && x.status === 'pending')) return false;   // есть неподтверждённые (жёлтые)
+    if (f.pending && !Object.values(r.slots).flat().some(x => x.employee && x.status === 'pending' && !CONTRACTOR_RE.test(x.employee.name))) return false;   // есть неподтверждённые (жёлтые)
     if (f.q) {
       const hay = lower([r.title, r.league, r.city, r.sport, r.info, ...Object.values(r.slots).flat().map(s => s.employee && s.employee.name)].join(' '));
       if (!hay.includes(f.q)) return false;
