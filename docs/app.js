@@ -743,6 +743,10 @@
     $('reload').onclick = () => { candCache.clear(); refreshNow = true; reload(); };
     $('prev').onclick = () => setMonth(monthShift(S.month, -1)); $('next').onclick = () => setMonth(monthShift(S.month, 1));
     $('addUser').onclick = () => { const v = $('newUser').value.trim(); if (v) usersAct('approve', v).then(() => { $('newUser').value = ''; }); };
+    const curTheme = () => document.documentElement.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    const paintTheme = () => { $('themeBtn').textContent = curTheme() === 'dark' ? '☀️' : '🌙'; $('themeBtn').title = curTheme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'; };
+    $('themeBtn').onclick = () => { const n = curTheme() === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', n); try { localStorage.setItem('bms_theme', n); } catch (e) { /* ok */ } paintTheme(); };
+    paintTheme();
     $('logout').onclick = logout; $('mClose').onclick = closeModal;
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
     ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
