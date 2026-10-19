@@ -290,3 +290,11 @@ test('доска: статус not_appointed из BMS считается отк�
   assert.equal(r.slots.vr[0].status, 'declined');
   assert.equal(r.stats.declined, 1);
 });
+
+test('доска: слот, закрытый подрядчиком, считается принятым (не жёлтым)', () => {
+  const it = item();
+  it.event_service_lines[1].assignment_contractor = { contractor: { name: 'ИП Берестнев Е.Г.' } };
+  const r = buildBoard([it]).days[0].rows[0];
+  const s = r.slots.other.concat(r.slots.cam).find(x => x.employee && x.employee.name.startsWith('ИП'));
+  assert.equal(s.status, 'appointed');
+});
