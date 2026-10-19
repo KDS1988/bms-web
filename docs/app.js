@@ -596,6 +596,7 @@
     if (f.league && r.league !== f.league) return false;
     if (f.gaps && r.stats.filled >= r.stats.total) return false;
     if (f.problems && !(r.stats.declined || r.stats.noRate)) return false;
+    if (f.pending && !Object.values(r.slots).flat().some(x => x.employee && x.status === 'pending')) return false;   // есть неподтверждённые (жёлтые)
     if (f.q) {
       const hay = lower([r.title, r.league, r.city, r.sport, r.info, ...Object.values(r.slots).flat().map(s => s.employee && s.employee.name)].join(' '));
       if (!hay.includes(f.q)) return false;
@@ -730,7 +731,7 @@
   function renderBlocks() {
     hidePop();
     const wy = window.scrollY, box = $('boardOut');
-    const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked };
+    const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked, pending: $('onlyPending').checked };
     const sel = $('league'), cur = sel.value;
     if (sel.options.length - 1 !== S.board.leagues.length) {
       sel.replaceChildren(h('option', { value: '' }, 'Все лиги'), ...S.board.leagues.map(l => h('option', { value: l }, l)));
@@ -777,7 +778,7 @@
     hidePop();
     const wrapOld = document.querySelector('#boardOut .tablewrap');
     const sc = wrapOld ? [wrapOld.scrollLeft, wrapOld.scrollTop] : null, wy = window.scrollY;
-    const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked };
+    const f = { q: lower($('q').value.trim()), league: $('league').value, gaps: $('onlyGaps').checked, problems: $('onlyProblems').checked, pending: $('onlyPending').checked };
     const sel = $('league'), cur = sel.value;
     if (sel.options.length - 1 !== S.board.leagues.length) {
       sel.replaceChildren(h('option', { value: '' }, 'Все лиги'), ...S.board.leagues.map(l => h('option', { value: l }, l)));
@@ -999,7 +1000,7 @@
     paintTheme();
     $('logout').onclick = logout; $('mClose').onclick = closeModal;
     $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
-    ['q', 'league', 'onlyGaps', 'onlyProblems'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
+    ['q', 'league', 'onlyGaps', 'onlyProblems', 'onlyPending'].forEach(id => $(id).addEventListener('input', () => S.board && renderBoard()));
     $('allEvents').addEventListener('change', () => { S.all = $('allEvents').checked; S.board = S.boardRaw = null; reload(); });
     const setView = () => { $('viewToggle').textContent = S.view === 'blocks' ? '☷ Таблица' : '▦ Блоки'; };
     $('viewToggle').onclick = () => { S.view = S.view === 'blocks' ? 'table' : 'blocks'; try { localStorage.setItem('bms_view', S.view); } catch (e) {} setView(); if (S.board) renderBoard(); };
