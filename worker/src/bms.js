@@ -61,7 +61,7 @@ export class BmsClient {
     this.fetch = (...args) => (fetchImpl || globalThis.fetch)(...args);
   }
 
-  async #request(method, path, { params, body } = {}) {
+  async #request(method, path, { params, body, raw } = {}) {
     const qs = params
       ? '?' + Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
       : '';
@@ -77,9 +77,9 @@ export class BmsClient {
           method,
           headers: {
             authorization: `Bearer ${token}`,
-            ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
+            ...(raw !== undefined ? { 'content-type': 'application/x-www-form-urlencoded' } : body !== undefined ? { 'content-type': 'application/json' } : {}),
           },
-          body: body !== undefined ? JSON.stringify(body) : undefined,
+          body: raw !== undefined ? String(raw) : body !== undefined ? JSON.stringify(body) : undefined,
         });
       } catch (e) {
         // сетевой сбой — повторяем (только если это не ошибка входа)
@@ -110,6 +110,8 @@ export class BmsClient {
   get(path, params) { return this.#request('GET', path, { params }); }
   post(path, body) { return this.#request('POST', path, { body }); }
   put(path, body) { return this.#request('PUT', path, { body }); }
+  /** Как делает сам BMS при «Отправить назначение»: тело — id назначения простым текстом. */
+  postRaw(path, raw) { return this.#request('POST', path, { raw }); }
   delete(path) { return this.#request('DELETE', path); }
 }
 

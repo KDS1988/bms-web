@@ -333,6 +333,22 @@ async function route(req, env, url, ctx) {
     return { ok: true };
   }
 
+  // «Отправить назначение»: BMS уведомляет сотрудника, статус назначения становится «ждёт ответа»
+  if (path === '/api/notify' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 30);
+    if (!ids.length) throw new HttpError(400, 'Нет назначений для отправки');
+    const sent = [], failed = [];
+    for (const id of ids) {
+      try { await client.postRaw(`notifications/assignments/technical/${id}/notify`, id); sent.push(id); }
+      catch (e) { failed.push({ id, error: String(e.message).slice(0, 200) }); }
+    }
+    console.log(JSON.stringify({ evt: 'notify', by: user.email, sent, failed: failed.length }));
+    if (sent.length) { await sessionStub(env).bumpBoard(); clearCache(); }
+    return { sent, failed };
+  }
+
   if (path === '/api/assign' && req.method === 'POST') {
     need('editor');
     const b = await body(req);

@@ -200,3 +200,8 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 .chip.not_appointed{background:#cfd4dc;color:#2a323d}
 :root[data-theme=dark] .chip.not_appointed{background:#4a5260;color:#e6ebf2}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]) .chip.not_appointed{background:#4a5260;color:#e6ebf2}}
+
+/* отправка назначений */
+.sendbtn{margin-left:4px;padding:0 6px;line-height:20px;border-radius:5px;cursor:pointer;font-size:13px}
+.sendbtn:hover{border-color:var(--acc);color:var(--acc)}
+.daysend{float:right;margin-left:10px;padding:1px 10px;font-size:12px;font-weight:500}

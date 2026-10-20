@@ -298,3 +298,14 @@ test('доска: слот, закрытый подрядчиком, счита�
   const s = r.slots.other.concat(r.slots.cam).find(x => x.employee && x.employee.name.startsWith('ИП'));
   assert.equal(s.status, 'appointed');
 });
+
+test('BMS: отправка назначения — тело простым текстом, как делает сам BMS', async () => {
+  const calls = [];
+  const c = new BmsClient(async () => 't', async (url, init) => { calls.push([url, init]); return new Response('{"message":"ok"}', { status: 200 }); });
+  const r = await c.postRaw('notifications/assignments/technical/43182/notify', 43182);
+  assert.equal(r.message, 'ok');
+  assert.ok(calls[0][0].endsWith('/notifications/assignments/technical/43182/notify'));
+  assert.equal(calls[0][1].method, 'POST');
+  assert.equal(calls[0][1].body, '43182');
+  assert.equal(calls[0][1].headers['content-type'], 'application/x-www-form-urlencoded');
+});

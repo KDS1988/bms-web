@@ -335,6 +335,9 @@
         kids.push(h('span', { class: 'chip ' + cls + (can ? ' editable' : ''),
           title: (isCon ? 'подрядчик · ' : '') + (STATUS[slot.status] || '') + (slot.logistics ? ' · ' + slot.logistics : '') + (can ? '\nНажмите, чтобы заменить' : ''),
           onclick: can ? () => { const inp = cellInput(row, slot, render); wrap.replaceChildren(inp, ...badges()); inp.focus(); } : null }, slot.employee.name));
+        if (editable && slot.assignmentId && slot.status === 'not_appointed')
+          kids.push(h('button', { class: 'sendbtn', title: 'Отправить назначение сотруднику (BMS пришлёт уведомление)',
+            onclick: e => { e.stopPropagation(); notifyAssignments([{ id: slot.assignmentId, who: slot.employee.name, role: slot.roleName }]); } }, '✉'));
         if (slot.hasRate === false) kids.push(h('span', { class: 'warn', title: 'Нет ставки — доначислите на вкладке «Ставки»' }, '⚠'));
       }
       if (editable && d && !isContractor)
@@ -378,6 +381,27 @@
     $('draftN').textContent = n;
     fitGrid();
   }
+
+  // ---------- «Отправить назначение»: серые (созданные, но не отправленные сотруднику) уходят в BMS как кнопкой «Отправить» в самом BMS
+  const greyOf = rows => rows.filter(r => !r.cancelled && !r.planned).flatMap(r => Object.values(r.slots).flat()
+    .filter(s => s.employee && s.assignmentId && s.status === 'not_appointed').map(s => ({ id: s.assignmentId, who: s.employee.name, role: s.roleName })));
+  async function notifyAssignments(list) {
+    if (!list.length || !canEdit()) return;
+    const sample = list.slice(0, 10).map(x => `${x.who} (${x.role})`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
+    if (!confirm(`Отправить назначения в BMS: ${list.length}?\nСотрудники получат уведомление.\n\n${sample}`)) return;
+    let sent = 0; const failed = [];
+    for (let i = 0; i < list.length; i += 30) {
+      try { const r = await api('/api/notify', { method: 'POST', body: { ids: list.slice(i, i + 30).map(x => x.id) } }); sent += r.sent.length; failed.push(...r.failed); }
+      catch (e) { failed.push({ error: e.message }); break; }
+    }
+    toast(`Отправлено: ${sent}` + (failed.length ? `. Не удалось: ${failed.length} (${failed[0].error})` : ''), failed.length > 0);
+    candCache.clear(); try { await loadBoard(true, true); } catch (e) { /* ok */ }
+  }
+  const dayNotifyBtn = rows => {
+    const g = greyOf(rows);
+    return g.length && canEdit() ? h('button', { class: 'daysend', title: 'Отправить сотрудникам все назначения этого дня, которые ещё не отправлены',
+      onclick: e => { e.stopPropagation(); notifyAssignments(g); } }, `✉ отправить серые (${g.length})`) : null;
+  };
 
   // ---------- подписи мероприятия: «отмена», город · вид спорта · …, информация из BMS, паровозик (командировка)
   const metaLine = r => [r.start && (r.start + (r.end ? '–' + r.end : '')), r.city, r.sport, r.league, r.service, ...(r.additional || [])].filter(Boolean).join(' · ');
@@ -746,7 +770,7 @@
       const isCol = collapsed.has(day.date);
       out.push(h('div', { class: 'dayrow bday' + (isCol ? ' collapsed' : ''), title: isCol ? 'Развернуть день' : 'Свернуть день',
         onclick: () => { if (collapsed.has(day.date)) collapsed.delete(day.date); else collapsed.add(day.date); saveCollapsed(); renderBoard(); } },
-      h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length));
+      h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length, dayNotifyBtn(rows)));
       if (isCol) continue;
       for (const r of rows) for (const k of Object.keys(r.slots)) for (const s of r.slots[k]) if (draft[keyOf(r, s)] && isStale(draft[keyOf(r, s)], s)) stale.push(keyOf(r, s));
       const ncols = Math.max(1, Math.floor(((box.clientWidth || window.innerWidth) + 10) / 280));
@@ -794,7 +818,7 @@
       const isCol = collapsed.has(day.date);
       tbody.append(h('tr', { class: 'dayrow' + (isCol ? ' collapsed' : ''), title: isCol ? 'Развернуть день' : 'Свернуть день',
         onclick: () => { if (collapsed.has(day.date)) collapsed.delete(day.date); else collapsed.add(day.date); saveCollapsed(); renderBoard(); } },
-      h('td', { colspan: used.length + 2 }, h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length)));
+      h('td', { colspan: used.length + 2 }, h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ', fmtDay(day.date), ' · ', rows.length, dayNotifyBtn(rows))));
       if (isCol) { shown += rows.length; continue; }
       for (const r of rows) {
         shown++;

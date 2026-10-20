@@ -20,7 +20,7 @@
           slots[g] = [];
           for (let k = 0; k < cnt; k++) {
             const has = rnd() > 0.28;
-            const st = !has ? '' : (rnd() > 0.35 ? 'appointed' : rnd() > 0.2 ? 'pending' : 'declined');
+            const st = !has ? '' : (rnd() > 0.35 ? 'appointed' : rnd() > 0.2 ? 'pending' : rnd() > 0.4 ? 'not_appointed' : 'declined');
             const rate = has ? rnd() > 0.1 : null;
             total++; if (has) filled++; if (st === 'appointed') acc++; if (st === 'declined') dec++; if (has && !rate) noRate++;
             slots[g].push({
@@ -65,6 +65,7 @@
     if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
     if (path.startsWith('/api/admin/users/')) return { ok: true };
     if (path === '/api/lines') return { lines: Object.entries(ROLES).map(([g, n], i) => ({ id: i + 1, name: n, group: g })) };
+    if (path === '/api/notify') return { sent: opts.body.ids, failed: [] };
     if (path === '/api/trips') { if (opts.body.on) tstore[opts.body.key] = 1; else delete tstore[opts.body.key]; return { ok: true }; }
     if (path === '/api/plans' && (opts.method || 'GET') === 'GET') return { plans: plans.filter(p => p.date >= q.from && p.date <= q.to), trips: Object.keys(tstore) };
     if (path === '/api/plans') { const b = opts.body; const i = plans.findIndex(p => p.id === b.id); const rec = { ...b, id: b.id || ++pseq, by: 'Демо' }; if (i >= 0) plans[i] = rec; else plans.push(rec); return { plan: rec }; }
