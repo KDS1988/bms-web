@@ -196,3 +196,5 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 .tripbtn:hover{opacity:.8}
 .tripbtn.on{filter:none;opacity:1;background:color-mix(in srgb,var(--acc) 18%,transparent);border-color:var(--acc)}
 .bcard .tripbtn{margin-right:-2px}
+
+.chip.not_appointed{background:color-mix(in srgb,var(--mut) 22%,transparent);color:var(--txt);border:1px dashed var(--mut)}

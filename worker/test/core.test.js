@@ -284,11 +284,11 @@ test('доска: город, вид спорта, информация и от�
   assert.equal(r2.title, 'Съемка ролика'); assert.equal(r2.info, '');
 });
 
-test('доска: статус not_appointed из BMS считается отказом', () => {
+test('доска: not_appointed (ещё не отправлено в BMS) — не отказ', () => {
   const it = item(); it.event_service_lines[0].assignment_technical.status = 'not_appointed';
   const r = buildBoard([it]).days[0].rows[0];
-  assert.equal(r.slots.vr[0].status, 'declined');
-  assert.equal(r.stats.declined, 1);
+  assert.equal(r.slots.vr[0].status, 'not_appointed');
+  assert.equal(r.stats.declined, 0);
 });
 
 test('доска: слот, закрытый подрядчиком, считается принятым (не жёлтым)', () => {

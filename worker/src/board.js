@@ -64,9 +64,8 @@ function statusOf(line) {
   const at = line.assignment_technical;
   // подрядчик не отвечает на назначение — в BMS он всегда «принял» (зелёный)
   if (!(at && at.employee)) return line.assignment_contractor && line.assignment_contractor.contractor ? 'appointed' : '';
-  // статусы BMS: pending — ждёт ответа, appointed — принял, not_appointed — отказался
-  const st = at.status || 'pending';
-  return st === 'not_appointed' ? 'declined' : st;
+  // статусы BMS: pending — ждёт ответа, appointed — принял, not_appointed — назначение создано, но ещё не отправлено сотруднику
+  return at.status || 'pending';
 }
 
 function badgesFor(item, groupKey) {

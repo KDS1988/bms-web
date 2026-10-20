@@ -4,7 +4,7 @@
   const DEMO = new URLSearchParams(location.search).get('demo') === '1';
   const COLS = [['vr', 'ВР'], ['prod', 'Прод'], ['dir', 'Реж'], ['replay', 'Повт'], ['gfx', 'Титры'], ['sound', 'Звук'], ['eng', 'Инж'], ['cam', 'Опер'], ['other', 'Др.']];
   const CONTRACTOR_RE = /^(ИП|СЗ|АНО|ООО|ОГАУ)(\s|$)/i;     // как на сервере: подрядчик определяется по названию
-  const STATUS = { appointed: 'принял', pending: 'ждёт ответа', declined: 'отказ' };
+  const STATUS = { appointed: 'принял', pending: 'ждёт ответа', declined: 'отказ', not_appointed: 'ещё не отправлено в BMS' };
   const STATE_LABEL = { free: 'свободен', busy: 'занят', off: 'не может' };
   const WD = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
   const MONTHS = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
