@@ -197,4 +197,6 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 .tripbtn.on{filter:none;opacity:1;background:color-mix(in srgb,var(--acc) 18%,transparent);border-color:var(--acc)}
 .bcard .tripbtn{margin-right:-2px}
 
-.chip.not_appointed{background:color-mix(in srgb,var(--mut) 22%,transparent);color:var(--txt);border:1px dashed var(--mut)}
+.chip.not_appointed{background:#cfd4dc;color:#2a323d}
+:root[data-theme=dark] .chip.not_appointed{background:#4a5260;color:#e6ebf2}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .chip.not_appointed{background:#4a5260;color:#e6ebf2}}
