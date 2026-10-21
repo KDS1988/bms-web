@@ -43,10 +43,12 @@
   const DEMO_NOTE = 'ДЕМО-РЕЖИМ: тестовые данные, ничего не отправляется в BMS';
   function banner(msg) { const b = $('banner'); const t = msg || (DEMO ? DEMO_NOTE : ''); b.textContent = t; b.hidden = !t; }
 
+  const bases = (CFG.API_URLS && CFG.API_URLS.length ? CFG.API_URLS : [CFG.API_URL]);
+  let baseIdx = 0;
   async function api(path, { method = 'GET', body, query } = {}) {
     if (DEMO) return window.DEMO(path, { method, body }, query || (body || {}));
     const qs = query ? '?' + new URLSearchParams(query).toString() : '';
-    const doFetch = () => fetch(CFG.API_URL + path + qs, {
+    const doFetch = (b = bases[baseIdx]) => fetch(b + path + qs, {
       method,
       headers: { ...(S.token ? { authorization: 'Bearer ' + S.token } : {}), ...(body ? { 'content-type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
@@ -54,8 +56,13 @@
     let r;
     try { r = await doFetch(); }
     catch (err) {
-      // «Failed to fetch»: ответа от сервера не было вовсе (сеть, VPN, блокировка, обрыв). Чтение безопасно повторить; запись — нет
-      if (method === 'GET') { await new Promise(ok => setTimeout(ok, 900)); try { r = await doFetch(); } catch (err2) { err = err2; } }
+      // «Failed to fetch»: ответа от сервера не было вовсе (сеть, VPN, блокировка, обрыв).
+      // Сначала пробуем другой адрес API (запасной/основной) и запоминаем рабочий; затем один повтор. Запись по тому же адресу не повторяем
+      for (let k = 1; k < bases.length && !r; k++) {
+        const i = (baseIdx + k) % bases.length;
+        try { r = await doFetch(bases[i]); baseIdx = i; } catch (e2) { /* следующий */ }
+      }
+      if (!r && method === 'GET') { await new Promise(ok => setTimeout(ok, 900)); try { r = await doFetch(); } catch (err2) { err = err2; } }
       if (!r) {
         const e = new Error('Нет ответа от сервера (' + (err && err.message || 'сеть') + '). Проверьте интернет, отключите VPN / блокировщики рекламы или попробуйте другую сеть.');
         e.network = true; throw e;
@@ -872,7 +879,7 @@
       if (needBoard && !editingNow() && S.board) { needBoard = false; await loadBoard(true); }
     } catch (e) {
       $('live').textContent = '● нет связи'; $('live').classList.add('off');
-      const why = e && e.status ? `Сервер ответил ${e.status}: ${e.message}` : 'Браузер не достучался до сервера: ' + (e && e.message ? e.message : e) + ' (' + CFG.API_URL + ')';
+      const why = e && e.status ? `Сервер ответил ${e.status}: ${e.message}` : 'Браузер не достучался до сервера: ' + (e && e.message ? e.message : e) + ' (' + bases[baseIdx] + ')';
       $('live').title = why;
       if (e && e.status === 403) banner(e.message);
       try { console.warn('poll failed:', why); } catch (x) { /* ok */ }
