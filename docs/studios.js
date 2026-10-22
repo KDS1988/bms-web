@@ -97,15 +97,26 @@
       studios.map(s => h('datalist', { id: 'sc-pcs-' + s }, pcsOf(s).map(p => h('option', { value: p })))));
     const body = [...days.keys()].sort().map(d => dayBlock(d, days.get(d).sort((a, b) => (C.span(a) || [0])[0] - (C.span(b) || [0])[0])));
     const info = ST.sync ? `Синхронизация: ${String(ST.sync.at).slice(0, 16).replace('T', ' ')} UTC, ${ST.sync.by}` : 'Синхронизации ещё не было';
-    $('scInfo').textContent = (ST.configured ? info : 'Источник не подключён: Админ → «Студии»') + ` · матчей: ${list.length}`;
+    const sm = $('scInfo');
+    sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
+    sm.style.color = syncMsg && !syncMsg.ok || (!syncMsg && !ST.configured) ? '#c0392b' : '';
     out.replaceChildren(dl, ...(body.length ? body : [h('p', { class: 'muted' }, ST.loaded ? 'В этом месяце матчей нет.' : 'Загрузка…')]));
   }
 
+  let syncMsg = null;
   async function sync() {
-    $('scSync').disabled = true;
-    try { const r = await api('/api/studios/sync', { method: 'POST', body: {} }); toast(`Прочитано строк: ${r.rows}, новых: ${r.added}`); await load(); }
-    catch (e) { toast(e.message, true); }
-    $('scSync').disabled = !A.canEdit();
+    const btn = $('scSync'); btn.disabled = true; btn.textContent = '⟳ Читаю таблицу…';
+    syncMsg = null;
+    try {
+      const r = await api('/api/studios/sync', { method: 'POST', body: {} });
+      toast(`Прочитано строк: ${r.rows}, новых: ${r.added}`); await load();
+      syncMsg = { ok: true, text: `Готово: прочитано строк ${r.rows}, новых ${r.added}` };
+    } catch (e) {
+      syncMsg = { ok: false, text: 'Не удалось прочитать таблицу: ' + e.message };
+      toast(syncMsg.text, true);
+    }
+    btn.disabled = !A.canEdit(); btn.textContent = '⟳ Из таблицы';
+    render();
   }
 
   function addModal() {
