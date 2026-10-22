@@ -223,3 +223,7 @@ tr.sc-cancel td { opacity: .5; text-decoration: line-through; }
 .sc-dayhead { cursor: pointer; user-select: none; }
 .sc-dayhead .tg { display: inline-block; width: 1.1em; color: var(--acc); }
 .sc-sort { cursor: pointer; } .sc-sort:hover, .sc-sort.on { color: var(--acc); }
+tr.sc-dim td { opacity: .28; }
+tr.sc-own td { background: rgba(46, 204, 113, .16); }
+tr.sc-vrbad td:nth-child(11) { background: rgba(243, 156, 18, .28); }
+.sc-pick { background: rgba(46, 204, 113, .2); border-color: rgba(46, 204, 113, .6); }

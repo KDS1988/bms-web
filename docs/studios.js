@@ -10,6 +10,7 @@
   let collapsed = new Set();
   try { collapsed = new Set(JSON.parse(sessionStorage.getItem('bms_sc_collapsed') || '[]')); } catch (e) { /* ok */ }
   const saveCol = () => { try { sessionStorage.setItem('bms_sc_collapsed', JSON.stringify([...collapsed])); } catch (e) { /* ok */ } };
+  let pick = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
   const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
@@ -56,11 +57,32 @@
     render();
   }
 
+  /** Затемняет матчи, которые выбранный ВР взять не может (пересечение, пауза, параллель только в проекте). */
+  function applyPick() {
+    const out = $('studiosOut'); if (!out) return;
+    const lab = $('scPick');
+    if (lab) { lab.textContent = pick ? `ВР: ${pick} ✕` : ''; lab.hidden = !pick; }
+    const byId = new Map(ST.matches.map(m => [m.id, m]));
+    const mine = new Map();
+    if (pick) ST.matches.forEach(m => { if (m.vr === pick && C.alive(m)) (mine.get(m.date) || mine.set(m.date, []).get(m.date)).push(m); });
+    out.querySelectorAll('tr[data-id]').forEach(tr => {
+      const m = byId.get(tr.dataset.id);
+      let dim = false, own = false;
+      if (pick && m) {
+        own = m.vr === pick;
+        dim = !own && !C.canTake((mine.get(m.date) || []), m, cfg());
+      }
+      tr.classList.toggle('sc-dim', dim); tr.classList.toggle('sc-own', own);
+    });
+  }
+  function setPick(v) { pick = v || ''; applyPick(); }
+
   function cell(m, key, o = {}) {
     const can = A.canEdit();
     const attrs = { class: 'sc-in ' + (o.cls || ''), value: m[key] || '', disabled: !can, list: o.list };
     if (o.type) attrs.type = o.type;
-    const el = h('input', { ...attrs, onchange: ev => { const v = ev.target.value.trim(); if (v !== (m[key] || '')) save(m, { [key]: v }); } });
+    const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim()); } : null,
+      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') pick = v; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
     return h('td', null, el);
   }
 
@@ -84,7 +106,8 @@
     if (assigned.size && assigned.size < need.count) head.append(h('span', { class: 'sc-warn' }, ` · не хватает ${need.count - assigned.size}`));
     const rows = isCol ? [] : sortList(list).map(m => {
       const conf = C.pcConflicts(m, ST.matches, ST.tol);
-      const tr = h('tr', { class: (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : null },
+      const vrBad = m.vr && C.alive(m) && !C.canTake(list.filter(x => x.id !== m.id && x.vr === m.vr), m, cfg());
+      const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
         statusCell(m), cell(m, 'support'), cell(m, 'engineer'),
         cell(m, 'studio', { list: 'sc-studios', cls: 'w90' }), cell(m, 'pc', { list: 'sc-pcs-' + (m.studio || ''), cls: 'w50' }),
         cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }),
@@ -127,6 +150,7 @@
     const sm = $('scInfo');
     sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
     sm.style.color = syncMsg && !syncMsg.ok || (!syncMsg && !ST.configured) ? '#c0392b' : '';
+    window.setTimeout(applyPick, 0);
     out.replaceChildren(dl, ...(body.length ? body : [h('p', { class: 'muted' }, ST.loaded ? 'В этом месяце матчей нет.' : 'Загрузка…')]));
   }
 
@@ -173,6 +197,7 @@
       h('label', { title: 'Какой нахлёст матчей на одном ПК допустим' }, 'Нахлёст на ПК ',
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
       h('label', null, h('input', { type: 'checkbox', onchange: e => { ST.onlyConf = e.target.checked; render(); } }), ' только конфликты ПК'),
+      h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
