@@ -136,6 +136,13 @@
 
   /** Ключ имени: слова без регистра и «ё», по алфавиту — «Иванов Иван» == «Иван Иванов». */
   const nameKey = n => String(n || '').toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean).sort().join(' ');
+  /** Тот же человек: слова одного имени целиком входят в другое («Кармен Клещевич» и «Клещевич Кармен Иванович»). */
+  function sameName(a, b) {
+    const x = nameKey(a).split(' ').filter(Boolean), y = nameKey(b).split(' ').filter(Boolean);
+    if (!x.length || !y.length) return false;
+    const [s, l] = x.length <= y.length ? [x, y] : [y, x];
+    return s.length >= 2 && s.every(w => l.includes(w));
+  }
   const words = t => new Set(String(t || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3));
 
   /**
@@ -175,13 +182,13 @@
     const slots = ((row.slots && row.slots.vr) || []);
     if (!m.vr) return { code: 'missing', slot: slots[0] || null };
     const k = nameKey(m.vr);
-    const mine = slots.find(s => s.employee && nameKey(s.employee.name) === k);
+    const mine = slots.find(s => s.employee && sameName(s.employee.name, m.vr));
     if (mine) return { code: mine.status || 'not_appointed', slot: mine };
     const other = slots.find(s => s.employee);
     if (other) return { code: 'other', slot: other, other: other.employee.name };
     return { code: 'missing', slot: slots[0] || null };
   }
 
-  const api = { nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  const api = { sameName, nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

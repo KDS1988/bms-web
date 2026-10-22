@@ -71,3 +71,11 @@ test('связь с BMS: имя, автосвязка, состояние ВР',
   assert.equal(C.vrState({ vr: '' }, { slots: { vr: [{ employee: null }] } }).code, 'missing');
   assert.equal(C.vrState({ vr: 'А Б' }, null).code, 'none');
 });
+
+test('имя: отчество в BMS не мешает', () => {
+  assert.ok(C.sameName('Кармен Клещевич', 'Клещевич Кармен Игоревна'));
+  assert.ok(C.sameName('Иванов Иван', 'Иван Иванов'));
+  assert.ok(!C.sameName('Иван Иванов', 'Иван Петров'));
+  assert.ok(!C.sameName('Иван', 'Иван Иванов'));
+  assert.equal(C.vrState({ vr: 'Кармен Клещевич' }, { slots: { vr: [{ employee: { name: 'Клещевич Кармен' }, status: 'appointed' }] } }).code, 'appointed');
+});

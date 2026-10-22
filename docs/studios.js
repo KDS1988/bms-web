@@ -179,7 +179,7 @@
       let id = slot.assignmentId;
       if (a.act !== 'notify') {
         const cand = (await api('/api/employees', { query: { date: m.date, lineId: slot.lineId } })).candidates;
-        const c = cand.find(x => C.nameKey(x.name) === C.nameKey(m.vr));
+        const c = cand.find(x => C.sameName(x.name, m.vr));
         if (!c) throw new Error(`«${m.vr}» не найден в BMS среди ВР на эту дату`);
         if (!silent && c.state && c.state !== 'free' && !confirm(`${m.vr} в BMS отмечен как «${c.state === 'busy' ? 'занят' : 'не может'}». Всё равно назначить?`)) return { ok: false, why: 'отменено' };
         const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: row.eventServiceId, lineId: slot.lineId, employeeId: c.id, lineName: slot.roleName,
@@ -196,15 +196,15 @@
     if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, ещё не назначенным или не отправленным в BMS'); return; }
     const sample = list.slice(0, 10).map(m => `${A.fmtDay(m.date)} ${m.start} ${m.project} — ${m.vr}`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
     if (!confirm(`Назначить ВР в BMS и отправить уведомления: ${list.length}\n(${ST.date ? A.fmtDay(ST.date) : 'все видимые дни'})\n\n${sample}`)) return;
-    const btn = $('scSendVr'); btn.disabled = true; let ok = 0; const bad = [];
+    const btn = $('scSendVr'); btn.disabled = true; const report = [];
     for (const [i, m] of list.entries()) {
       btn.textContent = `Отправка ${i + 1}/${list.length}…`;
       const r = await sendVr(m, true);
-      if (r.ok) ok++; else bad.push(`${A.fmtDay(m.date)} ${m.start} ${m.vr}: ${r.why}`);
+      report.push([r.ok ? 'ok' : 'err', `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1} · ${m.vr}` + (r.ok ? '' : ' — ' + r.why)]);
     }
     btn.disabled = !A.canEdit(); btn.textContent = '✉ ВР в BMS';
-    toast(`Отправлено: ${ok}` + (bad.length ? `. Не удалось: ${bad.length} — ${bad[0]}` : ''), bad.length > 0);
-    if (bad.length > 1) console.warn(bad.join('\n'));
+    const okN = report.filter(x => x[0] === 'ok').length;
+    A.openModal(`Готово: отправлено ${okN}, ошибок ${report.length - okN}`, h('div', null, report.map(([t, txt]) => h('div', { class: 'rep ' + t }, t === 'ok' ? '✓ ' : '✗ ', txt))));
     await loadBms();
   }
 
