@@ -25,3 +25,17 @@ test('ВР: пауза, параллель и минимум', () => {
   assert.equal(C.minVr([a, { ...b, status: 'отмена' }], { pause: 5, cap: 1 }).count, 1);
   assert.equal(C.span(m(5, '23:00', '01:00'))[1], 1500);
 });
+
+test('ПК: авторасстановка с кабинками', () => {
+  const k = (id, st, en, o = {}) => m(id, st, en, { studio: 'Калужская', ...o });
+  const all = [k(1, '10:00', '12:00', { comm: 'Иван Иванов' }), k(2, '10:30', '12:30', { comm: 'Пётр Петров' }), k(3, '10:00', '12:00', { comm: 'со стадиона' }), k(4, '11:00', '13:00', { comm: '' }), k(5, '12:00', '14:00', { comm: 'Иван Иванов' }), k(6, '10:00', '12:00', { studio: 'Алматы' })];
+  const r = C.planPcs(all, all, 0);
+  assert.equal(r.assign[1], '01'); assert.equal(r.assign[2], '02');
+  assert.equal(r.assign[3], '12'); assert.equal(r.assign[4], '13');       // без комментатора — ПК без кабинки
+  assert.equal(r.assign[5], '01');                                       // освободился после 12:00
+  assert.equal(r.assign[6], undefined);
+  const busy = Array.from({ length: 7 }, (_, i) => k(100 + i, '10:00', '12:00', { pc: C.PC_POOLS['Калужская'].plain[i] }));
+  const x = k(200, '11:00', '12:00', { comm: '' });
+  assert.equal(C.planPcs([...busy, x], [x], 0).miss.length, 1);
+  assert.equal(C.planPcs([k(1, '10:00', '12:00', { pc: '01', comm: 'А Б' }), k(2, '11:00', '13:00', { comm: 'А Б' })], [k(2, '11:00', '13:00', { comm: 'А Б' })], 0).assign[2], '02');
+});

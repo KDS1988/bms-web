@@ -10,6 +10,9 @@
   let collapsed = new Set();
   try { collapsed = new Set(JSON.parse(sessionStorage.getItem('bms_sc_collapsed') || '[]')); } catch (e) { /* ok */ }
   const saveCol = () => { try { sessionStorage.setItem('bms_sc_collapsed', JSON.stringify([...collapsed])); } catch (e) { /* ok */ } };
+  let draftPc = {};   // черновик расстановки ПК: id матча → ПК (не сохранён)
+  let draftMiss = 0;
+  let visible = [];
   let pick = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
@@ -79,10 +82,11 @@
 
   function cell(m, key, o = {}) {
     const can = A.canEdit();
-    const attrs = { class: 'sc-in ' + (o.cls || ''), value: m[key] || '', disabled: !can, list: o.list };
+    const dr = key === 'pc' && !m.pc && draftPc[m.id];
+    const attrs = { class: 'sc-in ' + (o.cls || '') + (dr ? ' sc-draft' : ''), value: m[key] || dr || '', disabled: !can, list: o.list, title: dr ? 'Черновик — ещё не сохранён' : null };
     if (o.type) attrs.type = o.type;
     const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim()); } : null,
-      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') pick = v; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
+      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') pick = v; if (key === 'pc') delete draftPc[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
     return h('td', null, el);
   }
 
@@ -150,11 +154,40 @@
     const sm = $('scInfo');
     sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
     sm.style.color = syncMsg && !syncMsg.ok || (!syncMsg && !ST.configured) ? '#c0392b' : '';
+    visible = list;
+    renderDraft();
     window.setTimeout(applyPick, 0);
     out.replaceChildren(dl, ...(body.length ? body : [h('p', { class: 'muted' }, ST.loaded ? 'В этом месяце матчей нет.' : 'Загрузка…')]));
   }
 
   let syncMsg = null;
+  function renderDraft() {
+    const box = $('scDraft'); if (!box) return;
+    const n = Object.keys(draftPc).length;
+    box.hidden = !n && !draftMiss;
+    box.replaceChildren(h('b', null, 'Черновик ПК: '), `расставлено ${n}` + (draftMiss ? `, не хватило свободных ПК: ${draftMiss}` : ''), ' ',
+      n ? h('button', { class: 'primary', onclick: applyDraft }, 'Применить') : null, h('button', { onclick: () => { draftPc = {}; draftMiss = 0; render(); } }, n ? 'Отменить' : 'Закрыть'));
+  }
+  function makeDraft(list) {
+    const r = C.planPcs(ST.matches, list, ST.tol);
+    draftPc = r.assign; draftMiss = r.miss.length;
+    if (!Object.keys(draftPc).length && !draftMiss) toast('Нет матчей без ПК (расстановка работает для студий Калужская и Сходненская)');
+    render();
+  }
+  async function applyDraft() {
+    const ids = Object.keys(draftPc), todo = ids.slice(); let ok = 0, bad = 0;
+    const worker = async () => {
+      while (todo.length) {
+        const id = todo.shift(), m = ST.matches.find(x => x.id === id);
+        if (!m || m.pc) continue;
+        try { const r = await api('/api/studios', { method: 'POST', body: { id, pc: draftPc[id] } }); Object.assign(m, r.match); ok++; } catch (e) { bad++; }
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    draftPc = {}; draftMiss = 0; render();
+    toast(`ПК сохранены: ${ok}` + (bad ? `, ошибок: ${bad}` : ''), !!bad);
+  }
+
   async function sync() {
     const btn = $('scSync'); btn.disabled = true; btn.textContent = '⟳ Читаю таблицу…';
     syncMsg = null;
@@ -197,12 +230,14 @@
       h('label', { title: 'Какой нахлёст матчей на одном ПК допустим' }, 'Нахлёст на ПК ',
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
       h('label', null, h('input', { type: 'checkbox', onchange: e => { ST.onlyConf = e.target.checked; render(); } }), ' только конфликты ПК'),
+      h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(visible) }, '🖥 Расставить ПК'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = !A.canEdit();
+    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = !A.canEdit();
+    bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }
 

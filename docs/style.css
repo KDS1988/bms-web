@@ -227,3 +227,6 @@ tr.sc-dim td { opacity: .28; }
 tr.sc-own td { background: rgba(46, 204, 113, .16); }
 tr.sc-vrbad td:nth-child(11) { background: rgba(243, 156, 18, .28); }
 .sc-pick { background: rgba(46, 204, 113, .2); border-color: rgba(46, 204, 113, .6); }
+.sc-draftbar { margin: 8px 0; padding: 8px 12px; border: 1px dashed var(--acc); border-radius: 8px; }
+.sc-draftbar button { margin-left: 8px; }
+.sc-in.sc-draft { color: var(--acc); font-style: italic; background: rgba(52, 120, 246, .1); }

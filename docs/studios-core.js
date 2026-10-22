@@ -59,6 +59,38 @@
     return { count: bins.length, bins };
   }
 
-  const api = { toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  // ПК по студиям: с кабинками для комментаторов и без них («со стадиона»)
+  const PC_POOLS = {
+    'Калужская': { cabin: ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '17'], plain: ['12', '13', '14', '15', '16', '19', '20'] },
+    'Сходненская': { cabin: ['21'], plain: [] },
+  };
+  /** Нужна ли кабинка: известен комментатор (не «со стадиона») или явно отмечено в источнике. */
+  function needsCabin(m) {
+    if (m.cabin === true) return true;
+    const c = String(m.comm || '').trim().toLowerCase();
+    return !!c && c !== '-' && !c.startsWith('со стадион');
+  }
+  /**
+   * Черновик расстановки ПК для матчей без ПК. Занятые ПК не трогаем.
+   * Возвращает { assign: {id: pc}, miss: [match] }.
+   */
+  function planPcs(all, targets, tol) {
+    const assign = {}, miss = [];
+    const work = all.map(m => ({ ...m }));
+    const byId = new Map(work.map(m => [m.id, m]));
+    const todo = targets.filter(m => alive(m) && !m.pc && PC_POOLS[m.studio] && span(m)).map(m => byId.get(m.id))
+      .sort((a, b) => a.date.localeCompare(b.date) || span(a)[0] - span(b)[0]);
+    for (const m of todo) {
+      const pool = PC_POOLS[m.studio][needsCabin(m) ? 'cabin' : 'plain'];
+      const free = pool.filter(pc => !work.some(o => o.id !== m.id && alive(o) && o.date === m.date && o.studio === m.studio && o.pc === pc && overlap(m, o, tol)));
+      if (!free.length) { miss.push(m); continue; }
+      // тот же проект в этот день — стараемся на том же ПК
+      const same = free.find(pc => work.some(o => o.date === m.date && o.studio === m.studio && o.pc === pc && o.project && o.project === m.project));
+      m.pc = same || free[0]; assign[m.id] = m.pc;
+    }
+    return { assign, miss };
+  }
+
+  const api = { PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

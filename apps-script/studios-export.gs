@@ -31,7 +31,7 @@ function doGet(e) {
       studio: x[0], pc: String(x[1]), date: date,
       start: fmtTime_(x[4], tz), end: fmtTime_(x[6], tz),
       project: x[7], t1: x[9], t2: x[10],
-      vr: x[15], comm1: x[18], comm2: x[19]
+      vr: x[15], comm1: x[18], comm2: x[19], cabin: x[17]
     });
   }
   return out_({ rows: rows });
