@@ -220,3 +220,6 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 tr.sc-conf td { background: rgba(231, 76, 60, .18); }
 tr.sc-cancel td { opacity: .5; text-decoration: line-through; }
 .sc-del { border: 0; background: none; cursor: pointer; opacity: .5; } .sc-del:hover { opacity: 1; color: #c0392b; }
+.sc-dayhead { cursor: pointer; user-select: none; }
+.sc-dayhead .tg { display: inline-block; width: 1.1em; color: var(--acc); }
+.sc-sort { cursor: pointer; } .sc-sort:hover, .sc-sort.on { color: var(--acc); }

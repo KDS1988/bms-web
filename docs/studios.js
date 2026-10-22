@@ -7,6 +7,28 @@
   const saveCfg = () => { try { localStorage.setItem('bms_studios_cfg', JSON.stringify({ pause: ST.pause, cap: ST.cap, tol: ST.tol })); } catch (e) { /* ok */ } };
   const $ = id => document.getElementById(id);
   const STATUSES = ['', 'запланировано', 'выполнено', 'отмена', 'проблемы в студии', 'проблемы на площадке'];
+  let collapsed = new Set();
+  try { collapsed = new Set(JSON.parse(sessionStorage.getItem('bms_sc_collapsed') || '[]')); } catch (e) { /* ok */ }
+  const saveCol = () => { try { sessionStorage.setItem('bms_sc_collapsed', JSON.stringify([...collapsed])); } catch (e) { /* ok */ } };
+  let sort = { key: 'start', dir: 1 };
+  try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
+  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
+  function sortList(list) {
+    const k = sort.key, time = k === 'start' || k === 'end';
+    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : String(m[k] || '').toLowerCase();
+    return list.slice().sort((a, b) => {
+      const x = val(a), y = val(b);
+      // пустые значения всегда внизу
+      if (!time && (x === '') !== (y === '')) return x === '' ? 1 : -1;
+      const c = time ? x - y : x.localeCompare(y, 'ru', { numeric: true });
+      return c * sort.dir || (C.span(a) || [0])[0] - (C.span(b) || [0])[0];
+    });
+  }
+  function setSort(k) {
+    sort = sort.key === k ? { key: k, dir: -sort.dir } : { key: k, dir: 1 };
+    try { localStorage.setItem('bms_sc_sort', JSON.stringify(sort)); } catch (e) { /* ok */ }
+    render();
+  }
   const cfg = () => ({ pause: ST.pause, cap: ST.cap });
 
   async function load() {
@@ -49,7 +71,10 @@
   }
 
   function dayBlock(date, list) {
-    const head = h('div', { class: 'sc-dayhead' },
+    const isCol = collapsed.has(date);
+    const head = h('div', { class: 'sc-dayhead' + (isCol ? ' collapsed' : ''), title: isCol ? 'Развернуть день' : 'Свернуть день',
+      onclick: () => { if (collapsed.has(date)) collapsed.delete(date); else collapsed.add(date); saveCol(); render(); } },
+      h('span', { class: 'tg' }, isCol ? '▸' : '▾'), ' ',
       h('b', null, A.fmtDay(date)), ' ',
       h('span', { class: 'muted' }, `матчей: ${list.filter(C.alive).length}`));
     const need = C.minVr(list, cfg());
@@ -57,7 +82,7 @@
     head.append(h('span', { class: 'sc-need', title: 'Минимум ВР при выбранной паузе между матчами' }, `нужно ВР: ${need.count}`),
       h('span', { class: 'muted' }, ` · поставлено: ${assigned.size}`));
     if (assigned.size && assigned.size < need.count) head.append(h('span', { class: 'sc-warn' }, ` · не хватает ${need.count - assigned.size}`));
-    const rows = list.map(m => {
+    const rows = isCol ? [] : sortList(list).map(m => {
       const conf = C.pcConflicts(m, ST.matches, ST.tol);
       const tr = h('tr', { class: (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : null },
         statusCell(m), cell(m, 'support'), cell(m, 'engineer'),
@@ -69,8 +94,9 @@
         h('td', null, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
     });
+    if (isCol) return h('div', { class: 'sc-day' }, head);
     return h('div', { class: 'sc-day' }, head, h('div', { class: 'tablewrap' }, h('table', { class: 'sc-table' },
-      h('thead', null, h('tr', null, ['Статус', 'Саппорт', 'Инженер', 'Студия', '№ ПК', 'Начало', 'Конец', 'Проект', 'Команда 1', 'Команда 2', 'Выпускающий режиссёр', 'Комментатор', 'TRI', 'Комментарий', 'Комментарий саппорта', ''].map(t => h('th', null, t)))),
+      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sort.key === k ? ' on' : ''), title: 'Сортировать внутри каждого дня', onclick: () => setSort(k) }, t, sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')), h('th')])),
       h('tbody', null, rows))));
   }
 
@@ -95,7 +121,8 @@
       h('datalist', { id: 'sc-studios' }, studios.map(s => h('option', { value: s }))),
       h('datalist', { id: 'sc-vrs' }, names('vr').map(s => h('option', { value: s }))),
       studios.map(s => h('datalist', { id: 'sc-pcs-' + s }, pcsOf(s).map(p => h('option', { value: p })))));
-    const body = [...days.keys()].sort().map(d => dayBlock(d, days.get(d).sort((a, b) => (C.span(a) || [0])[0] - (C.span(b) || [0])[0])));
+    const body = [...days.keys()].sort().map(d => dayBlock(d, days.get(d)));
+    window.__scDays = [...days.keys()];
     const info = ST.sync ? `Синхронизация: ${String(ST.sync.at).slice(0, 16).replace('T', ' ')} UTC, ${ST.sync.by}` : 'Синхронизации ещё не было';
     const sm = $('scInfo');
     sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
@@ -146,6 +173,8 @@
       h('label', { title: 'Какой нахлёст матчей на одном ПК допустим' }, 'Нахлёст на ПК ',
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
       h('label', null, h('input', { type: 'checkbox', onchange: e => { ST.onlyConf = e.target.checked; render(); } }), ' только конфликты ПК'),
+      h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
+      h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
     $('scAdd').disabled = $('scSync').disabled = !A.canEdit();
