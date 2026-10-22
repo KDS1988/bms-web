@@ -327,3 +327,15 @@ test('студии: разбор строки источника и слияни
   assert.ok(sanitizePatch({ start: '25' }).error);
   assert.equal(sanitizePatch({ pc: ' 03 ' }).patch.pc, '03');
 });
+
+import { buildVrStats, autoLabel } from '../src/studios.js';
+test('ВР: статистика и автометки', () => {
+  const rows = [];
+  for (let i = 0; i < 30; i++) rows.push([`2026-0${1 + (i % 6)}-1${i % 9}`, 'Калужская', i % 3 ? 'КХЛ_ПАК' : 'НСФЛ', 'Иван Иванов', 'выполнено']);
+  rows.push(['2026-02-01', 'К', 'НСФЛ', 'Новый Человек', 'выполнено'], ['2026-02-01', 'К', 'НСФЛ', 'Иван  Иванов', 'отмена']);
+  const st = buildVrStats(rows);
+  assert.equal(st['Иван Иванов'].n, 30); assert.equal(st['Иван Иванов'].proj['КХЛ_ПАК'], 20);
+  assert.equal(autoLabel(st['Иван Иванов'], '2026-10-22'), 'опытный');
+  assert.equal(autoLabel(st['Новый Человек'], '2026-10-22'), 'новичок');
+  assert.equal(autoLabel({ n: 40, bad: 6, first: '2025-09-01', last: '2026-10-01' }, '2026-10-22'), 'нестабильный');
+});

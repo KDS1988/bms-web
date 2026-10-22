@@ -65,6 +65,13 @@
     if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
     if (path.startsWith('/api/admin/users/')) return { ok: true };
     if (path === '/api/lines') return { lines: Object.entries(ROLES).map(([g, n], i) => ({ id: i + 1, name: n, group: g })) };
+    if (path === '/api/studios/vr') return { at: new Date().toISOString(), vrs: [
+      { name: 'Кармен Клещевич', n: 410, bad: 8, first: '2025-09-01', last: '2026-10-20', proj: { 'КХЛ_ПАК': 200, 'Junior Hockey': 90 }, auto: 'опытный', manual: '', label: 'опытный' },
+      { name: 'Роман Губайдулин', n: 120, bad: 15, first: '2025-09-01', last: '2026-10-19', proj: { 'НСФЛ': 60 }, auto: 'нестабильный', manual: '', label: 'нестабильный' },
+      { name: 'Новый Человек', n: 4, bad: 0, first: '2026-10-01', last: '2026-10-19', proj: {}, auto: 'новичок', manual: '', label: 'новичок' },
+      { name: 'Ольга Моисеева', n: 300, bad: 2, first: '2025-09-01', last: '2026-10-21', proj: { 'Рестрим КП Беларусь': 150, 'КХЛ_ПАК': 40 }, auto: 'опытный', manual: '', label: 'опытный' }] };
+    if (path === '/api/studios/vr/label') return { ok: true };
+    if (path === '/api/studios/history/sync') return { rows: 6000, vrs: 4 };
     if (path === '/api/studios/source') return { configured: true, url: 'https://script.google.com/macros/s/DEMO/exec' };
     if (path === '/api/studios/sync') return { rows: 12, added: 0 };
     if (path === '/api/studios/delete') { const i = smatches.findIndex(m => m.id === opts.body.id); if (i >= 0) smatches.splice(i, 1); return { ok: true }; }

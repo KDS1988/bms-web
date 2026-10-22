@@ -230,3 +230,4 @@ tr.sc-vrbad td:nth-child(11) { background: rgba(243, 156, 18, .28); }
 .sc-draftbar { margin: 8px 0; padding: 8px 12px; border: 1px dashed var(--acc); border-radius: 8px; }
 .sc-draftbar button { margin-left: 8px; }
 .sc-in.sc-draft { color: var(--acc); font-style: italic; background: rgba(52, 120, 246, .1); }
+.sc-in.vr-new { border-left: 3px solid #3498db; } .sc-in.vr-pro { border-left: 3px solid #2ecc71; } .sc-in.vr-bad { border-left: 3px solid #e67e22; }

@@ -96,6 +96,44 @@
     return { assign, miss };
   }
 
-  const api = { PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  /**
+   * Черновик расстановки ВР для матчей без ВР.
+   * info: { today: 'ГГГГ-ММ-ДД', vrs: { имя: { n, last, label, proj: {проект: число} } } }
+   * Правила: жёсткие — пауза/параллель (canTake); мягкие — опыт в проекте, метка, повторное использование
+   * уже занятых в этот день ВР (меньше людей), равномерность.
+   */
+  function planVrs(all, targets, info, cfg) {
+    const assign = {}, miss = [];
+    const active = Object.keys(info.vrs).filter(n => {
+      const e = info.vrs[n]; return e.n > 0 && (new Date(info.today) - new Date(e.last)) / 86400000 <= 120;
+    });
+    const load = new Map();                           // 'дата|имя' → матчи
+    const key = (d, n) => d + '|' + n;
+    for (const m of all) if (m.vr && alive(m)) { const k = key(m.date, m.vr); (load.get(k) || load.set(k, []).get(k)).push(m); }
+    const todo = targets.filter(m => alive(m) && !m.vr && span(m)).slice().sort((a, b) => a.date.localeCompare(b.date) || span(a)[0] - span(b)[0]);
+    for (const m of todo) {
+      const names = new Set(active);
+      for (const k of load.keys()) if (k.startsWith(m.date + '|')) names.add(k.slice(11));
+      let best = null, bestScore = -Infinity;
+      for (const n of [...names].sort()) {
+        const list = load.get(key(m.date, n)) || [];
+        if (!canTake(list, m, cfg)) continue;
+        const e = info.vrs[n] || { n: 0, proj: {}, label: 'новичок' };
+        const exp = (e.proj && e.proj[m.project]) || 0;
+        let sc = Math.min(Math.log2(1 + exp) * 3, 12);
+        if (e.label === 'опытный') sc += 2; else if (e.label === 'нестабильный') sc -= 2; else sc -= 3;
+        if (!exp) sc -= e.label === 'новичок' ? 6 : 2;
+        if (list.length) { sc += 4; if (list.some(x => x.project === m.project)) sc += 3; }
+        sc -= Math.max(0, list.length - 3) * 1.5;
+        if (sc > bestScore) { bestScore = sc; best = n; }
+      }
+      if (!best) { miss.push(m); continue; }
+      assign[m.id] = best;
+      const k = key(m.date, best); (load.get(k) || load.set(k, []).get(k)).push({ ...m, vr: best });
+    }
+    return { assign, miss };
+  }
+
+  const api = { planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

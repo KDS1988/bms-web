@@ -41,3 +41,20 @@ test('ПК: авторасстановка с кабинками', () => {
   assert.equal(C.planPcs([...busy, x], [x], 0).miss.length, 1);
   assert.equal(C.planPcs([k(1, '10:00', '12:00', { pc: '01', comm: 'А Б' }), k(2, '11:00', '13:00', { comm: 'А Б' })], [k(2, '11:00', '13:00', { comm: 'А Б' })], 0).assign[2], '02');
 });
+
+test('ВР: авторасстановка', () => {
+  const info = { today: '2026-10-22', vrs: {
+    'Опытный А': { n: 100, last: '2026-10-20', label: 'опытный', proj: { 'КХЛ_ПАК': 80 } },
+    'Опытный Б': { n: 90, last: '2026-10-20', label: 'опытный', proj: { 'НСФЛ': 50 } },
+    'Новичок': { n: 5, last: '2026-10-20', label: 'новичок', proj: {} },
+    'Старый': { n: 100, last: '2025-01-01', label: 'опытный', proj: { 'КХЛ_ПАК': 99 } } } };
+  const a = m(1, '10:00', '12:00', { project: 'КХЛ_ПАК', date: '2026-10-25' }), b = m(2, '12:20', '14:00', { project: 'КХЛ_ПАК', date: '2026-10-25' });
+  const c = m(3, '10:30', '12:30', { project: 'НСФЛ', date: '2026-10-25' });
+  const r = C.planVrs([a, b, c], [a, b, c], info, { pause: 15, cap: 1 });
+  assert.equal(r.assign[1], 'Опытный А'); assert.equal(r.assign[2], 'Опытный А');   // тот же человек подряд
+  assert.equal(r.assign[3], 'Опытный Б');
+  const d = m(4, '10:00', '12:00', { project: 'КХЛ_ПАК', date: '2026-10-25', vr: 'Опытный А' });
+  const r2 = C.planVrs([d, a], [a], info, { pause: 15, cap: 1 });
+  assert.notEqual(r2.assign[1], 'Опытный А');                                       // занят в это время
+  assert.notEqual(r2.assign[1], 'Старый');                                          // давно не работал
+});

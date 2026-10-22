@@ -5,7 +5,7 @@
 import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard, roleGroupKey } from './board.js';
 import { sanitizePlan } from './plans.js';
-import { parseSourceRow, sanitizePatch } from './studios.js';
+import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
@@ -339,6 +339,31 @@ async function route(req, env, url, ctx) {
     return { ok: true };
   }
 
+  if (path === '/api/studios/vr' && req.method === 'GET') {
+    need('viewer');
+    const { stats, at, manual } = await sessionStub(env).vrGet();
+    const today = new Date().toISOString().slice(0, 10);
+    const vrs = Object.entries(stats).map(([name, e]) => {
+      const auto = autoLabel(e, today), man = manual[name] ? manual[name].label : '';
+      return { name, n: e.n, bad: e.bad, first: e.first, last: e.last, proj: e.proj, auto, manual: man, label: man || auto };
+    }).sort((a, b) => b.n - a.n);
+    // ВР, у которых есть только ручная метка (в истории нет)
+    for (const [name, m] of Object.entries(manual)) if (!stats[name]) vrs.push({ name, n: 0, bad: 0, first: today, last: today, proj: {}, auto: 'новичок', manual: m.label, label: m.label });
+    return { vrs, at };
+  }
+  if (path === '/api/studios/vr/label' && req.method === 'POST') {
+    need('admin');
+    const b = await body(req);
+    const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 80), label = String(b.label || '');
+    if (!name || !VR_LABELS.includes(label)) throw new HttpError(400, 'Некорректные данные');
+    await sessionStub(env).vrLabelSet(name, label, user.name || user.email);
+    return { ok: true };
+  }
+  if (path === '/api/studios/history/sync' && req.method === 'POST') {
+    need('editor');
+    return syncVrHistory(env);
+  }
+
   // ---- общий черновик
   if (path === '/api/draft' && req.method === 'GET') {
     need('viewer');
@@ -478,6 +503,22 @@ export async function syncStudios(env, by) {
   return st.studiosSyncApply(matches, d, by);
 }
 
+/** Читает историю матчей из таблицы студий (тот же Apps Script, mode=history) и пересчитывает статистику ВР. */
+export async function syncVrHistory(env) {
+  const st = sessionStub(env);
+  const src = await st.studiosSrcGet();
+  if (!src) throw new HttpError(400, 'Источник не подключён: Админ → «Студии: источник матчей»');
+  const res = await fetch(`${src.url}?key=${encodeURIComponent(src.key)}&mode=history`, { redirect: 'follow' });
+  if (!res.ok) throw new HttpError(502, 'Источник ответил ' + res.status);
+  let data;
+  try { data = await res.json(); } catch { throw new HttpError(502, 'Источник вернул не JSON'); }
+  if (data.error) throw new HttpError(502, 'Источник: ' + data.error);
+  if (!Array.isArray(data.history)) throw new HttpError(502, 'Скрипт источника устарел: обновите его (в нём нет режима history) и заново разверните');
+  const stats = buildVrStats(data.history);
+  await st.vrStatsSet(stats);
+  return { rows: data.history.length, vrs: Object.keys(stats).length };
+}
+
 export default {
   async fetch(req, env, ctx) {
     const cors = corsHeaders(req, env);
@@ -499,6 +540,10 @@ export default {
 
   // раз в 5 минут держим «тёплыми» снимки текущего и следующего месяца — первый заход не ждёт BMS
   async scheduled(event, env, ctx) {
+    ctx.waitUntil((async () => {   // история ВР — раз в сутки
+      const v = await sessionStub(env).vrGet();
+      if (!v.at || Date.now() - Date.parse(v.at) > 20 * 3600 * 1000) await syncVrHistory(env);
+    })().catch(e => { if (!/не подключ/.test(String(e.message))) console.error('vrhistory', String(e.message || e)); }));
     ctx.waitUntil(syncStudios(env, 'авто').catch(e => { if (!/не подключ/.test(String(e.message))) console.error('studios', String(e.message || e)); }));
     const client = makeClient(env);
     const now = new Date();

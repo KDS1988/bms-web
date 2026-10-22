@@ -298,6 +298,21 @@ export class BmsSession extends DurableObject {
     return false;
   }
 
+
+  // ---- история ВР (статистика) и ручные метки
+  async vrGet() {
+    const [stats, at, manual] = await Promise.all([this.ctx.storage.get('vrstats'), this.ctx.storage.get('vrstatsAt'), this.ctx.storage.get('vrlabels')]);
+    return { stats: stats || {}, at: at || null, manual: manual || {} };
+  }
+  async vrStatsSet(stats) {
+    await this.ctx.storage.put({ vrstats: stats, vrstatsAt: new Date().toISOString() });
+  }
+  async vrLabelSet(name, label, by) {
+    const m = (await this.ctx.storage.get('vrlabels')) || {};
+    if (label) m[name] = { label, by, at: new Date().toISOString() }; else delete m[name];
+    await this.ctx.storage.put('vrlabels', m);
+  }
+
   // ---- снимки доски (сжатый JSON): отдаём мгновенно, обновляем в фоне
   async snapGet(key) {
     const [v, lw] = await Promise.all([this.ctx.storage.get('snap:' + key), this.ctx.storage.get('lw')]);

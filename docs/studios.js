@@ -12,6 +12,8 @@
   const saveCol = () => { try { sessionStorage.setItem('bms_sc_collapsed', JSON.stringify([...collapsed])); } catch (e) { /* ok */ } };
   let draftPc = {};   // черновик расстановки ПК: id матча → ПК (не сохранён)
   let draftMiss = 0;
+  let draftVr = {}, draftVrMiss = 0;   // черновик расстановки ВР
+  let vrInfo = { vrs: {}, at: null, list: [] };
   let visible = [];
   let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
@@ -38,8 +40,18 @@
   async function load() {
     const d = await api('/api/studios', { query: A.range() });
     ST.matches = d.matches; ST.configured = d.configured; ST.sync = d.sync; ST.loaded = true;
+    if (!vrInfo.at && !vrInfo.tried) loadVr();
     render();
   }
+  async function loadVr() {
+    vrInfo.tried = true;
+    try {
+      const d = await api('/api/studios/vr');
+      vrInfo = { vrs: Object.fromEntries(d.vrs.map(v => [v.name, v])), list: d.vrs, at: d.at, tried: true };
+      render();
+    } catch (e) { /* метки необязательны */ }
+  }
+  const LABEL_CLS = { 'новичок': 'vr-new', 'опытный': 'vr-pro', 'нестабильный': 'vr-bad' };
 
   function names(key) { return [...new Set(ST.matches.map(m => m[key]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ru')); }
 
@@ -82,11 +94,14 @@
 
   function cell(m, key, o = {}) {
     const can = A.canEdit();
-    const dr = key === 'pc' && !m.pc && draftPc[m.id];
-    const attrs = { class: 'sc-in ' + (o.cls || '') + (dr ? ' sc-draft' : ''), value: m[key] || dr || '', disabled: !can, list: o.list, title: dr ? 'Черновик — ещё не сохранён' : null };
+    const dr = !m[key] && (key === 'pc' ? draftPc[m.id] : key === 'vr' ? draftVr[m.id] : '');
+    const vrName = key === 'vr' ? (m.vr || dr) : '';
+    const lab = vrName && vrInfo.vrs[vrName] ? vrInfo.vrs[vrName].label : '';
+    const attrs = { class: 'sc-in ' + (o.cls || '') + (dr ? ' sc-draft' : '') + (lab ? ' ' + LABEL_CLS[lab] : ''), value: m[key] || dr || '', disabled: !can, list: o.list,
+      title: dr ? 'Черновик — ещё не сохранён' : (lab ? `ВР: ${lab}` : null) };
     if (o.type) attrs.type = o.type;
     const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim(), m.date); } : null,
-      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') { pick = v; pickDate = v ? m.date : ''; } if (key === 'pc') delete draftPc[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
+      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') { pick = v; pickDate = v ? m.date : ''; } if (key === 'pc') delete draftPc[m.id]; if (key === 'vr') delete draftVr[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
     return h('td', null, el);
   }
 
@@ -146,7 +161,7 @@
     list.forEach(m => (days.get(m.date) || days.set(m.date, []).get(m.date)).push(m));
     const dl = h('div', null,
       h('datalist', { id: 'sc-studios' }, studios.map(s => h('option', { value: s }))),
-      h('datalist', { id: 'sc-vrs' }, names('vr').map(s => h('option', { value: s }))),
+      h('datalist', { id: 'sc-vrs' }, [...new Set([...names('vr'), ...Object.keys(vrInfo.vrs)])].sort((a, b) => a.localeCompare(b, 'ru')).map(s => h('option', { value: s, label: vrInfo.vrs[s] ? vrInfo.vrs[s].label : '' }))),
       studios.map(s => h('datalist', { id: 'sc-pcs-' + s }, pcsOf(s).map(p => h('option', { value: p })))));
     const body = [...days.keys()].sort().map(d => dayBlock(d, days.get(d)));
     window.__scDays = [...days.keys()];
@@ -163,10 +178,14 @@
   let syncMsg = null;
   function renderDraft() {
     const box = $('scDraft'); if (!box) return;
-    const n = Object.keys(draftPc).length;
-    box.hidden = !n && !draftMiss;
-    box.replaceChildren(h('b', null, 'Черновик ПК: '), `расставлено ${n}` + (draftMiss ? `, не хватило свободных ПК: ${draftMiss}` : ''), ' ',
-      n ? h('button', { class: 'primary', onclick: applyDraft }, 'Применить') : null, h('button', { onclick: () => { draftPc = {}; draftMiss = 0; render(); } }, n ? 'Отменить' : 'Закрыть'));
+    const np = Object.keys(draftPc).length, nv = Object.keys(draftVr).length;
+    box.hidden = !np && !nv && !draftMiss && !draftVrMiss;
+    const parts = [];
+    if (np || draftMiss) parts.push(`ПК: расставлено ${np}` + (draftMiss ? `, не хватило свободных: ${draftMiss}` : ''));
+    if (nv || draftVrMiss) parts.push(`ВР: расставлено ${nv}` + (draftVrMiss ? `, некого поставить: ${draftVrMiss}` : ''));
+    box.replaceChildren(h('b', null, 'Черновик: '), parts.join(' · '), ' ',
+      np + nv ? h('button', { class: 'primary', onclick: applyDraft }, 'Применить') : null,
+      h('button', { onclick: () => { draftPc = {}; draftMiss = 0; draftVr = {}; draftVrMiss = 0; render(); } }, np + nv ? 'Отменить' : 'Закрыть'));
   }
   function makeDraft(list) {
     const r = C.planPcs(ST.matches, list, ST.tol);
@@ -174,18 +193,58 @@
     if (!Object.keys(draftPc).length && !draftMiss) toast('Нет матчей без ПК (расстановка работает для студий Калужская и Сходненская)');
     render();
   }
+  function makeDraftVr(list) {
+    if (!Object.keys(vrInfo.vrs).length) { toast('Нет истории ВР: нажмите «👥 ВР» → «Обновить историю»', true); return; }
+    const r = C.planVrs(ST.matches, list, { today: new Date().toISOString().slice(0, 10), vrs: vrInfo.vrs }, cfg());
+    draftVr = r.assign; draftVrMiss = r.miss.length;
+    if (!Object.keys(draftVr).length && !draftVrMiss) toast('Нет матчей без ВР');
+    render();
+  }
   async function applyDraft() {
-    const ids = Object.keys(draftPc), todo = ids.slice(); let ok = 0, bad = 0;
+    const ids = [...new Set([...Object.keys(draftPc), ...Object.keys(draftVr)])], todo = ids.slice(); let ok = 0, bad = 0;
     const worker = async () => {
       while (todo.length) {
         const id = todo.shift(), m = ST.matches.find(x => x.id === id);
-        if (!m || m.pc) continue;
-        try { const r = await api('/api/studios', { method: 'POST', body: { id, pc: draftPc[id] } }); Object.assign(m, r.match); ok++; } catch (e) { bad++; }
+        if (!m) continue;
+        const body = { id };
+        if (draftPc[id] && !m.pc) body.pc = draftPc[id];
+        if (draftVr[id] && !m.vr) body.vr = draftVr[id];
+        if (Object.keys(body).length < 2) continue;
+        try { const r = await api('/api/studios', { method: 'POST', body }); Object.assign(m, r.match); ok++; } catch (e) { bad++; }
       }
     };
     await Promise.all([worker(), worker(), worker(), worker()]);
-    draftPc = {}; draftMiss = 0; render();
-    toast(`ПК сохранены: ${ok}` + (bad ? `, ошибок: ${bad}` : ''), !!bad);
+    draftPc = {}; draftMiss = 0; draftVr = {}; draftVrMiss = 0; render();
+    toast(`Сохранено матчей: ${ok}` + (bad ? `, ошибок: ${bad}` : ''), !!bad);
+  }
+
+  function vrModal() {
+    const isAdmin = S.user && S.user.role === 'admin';
+    const body = h('div');
+    const draw = () => {
+      const list = vrInfo.list;
+      body.replaceChildren(
+        h('p', { class: 'muted' }, vrInfo.at ? `История обновлена: ${String(vrInfo.at).slice(0, 16).replace('T', ' ')} UTC. ` : 'История ещё не загружена. ',
+          'Авто-метки: «новичок» — меньше 20 выполненных матчей или первый матч менее 45 дней назад; «нестабильный» — не меньше 10% матчей с проблемами (и не меньше 3); остальные — «опытный». Ручная метка админа главнее.'),
+        h('div', { class: 'form' }, h('button', { class: 'primary', disabled: !A.canEdit(), onclick: async ev => {
+          ev.target.disabled = true; ev.target.textContent = 'Читаю историю…';
+          try { const r = await api('/api/studios/history/sync', { method: 'POST', body: {} }); toast(`История: строк ${r.rows}, ВР ${r.vrs}`); vrInfo.tried = false; await loadVr(); draw(); }
+          catch (e) { toast(e.message, true); ev.target.disabled = false; ev.target.textContent = 'Обновить историю'; }
+        } }, 'Обновить историю')),
+        h('div', { class: 'tablewrap' }, h('table', { class: 'sc-table' },
+          h('thead', null, h('tr', null, ['ВР', 'Матчей', 'Последний', 'Главные проекты', 'Авто', 'Метка'].map(t => h('th', null, t)))),
+          h('tbody', null, list.map(v => h('tr', null,
+            h('td', null, v.name), h('td', null, v.n + (v.bad ? ` (+${v.bad} пробл.)` : '')), h('td', null, v.last),
+            h('td', null, Object.entries(v.proj).slice(0, 3).map(([p, n]) => `${p} ${n}`).join(', ')),
+            h('td', null, v.auto),
+            h('td', null, isAdmin ? h('select', { onchange: async ev => {
+              try { await api('/api/studios/vr/label', { method: 'POST', body: { name: v.name, label: ev.target.value } }); v.manual = ev.target.value; v.label = v.manual || v.auto; vrInfo.vrs[v.name] = v; render(); toast('Метка сохранена'); }
+              catch (e) { toast(e.message, true); }
+            } }, ['', 'новичок', 'опытный', 'нестабильный'].map(l => h('option', { value: l, selected: l === v.manual }, l || 'по истории'))) : v.label))))))
+      );
+    };
+    draw();
+    A.openModal('Выпускающие режиссёры: история и метки', body);
   }
 
   async function sync() {
@@ -231,12 +290,14 @@
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
       h('label', null, h('input', { type: 'checkbox', onchange: e => { ST.onlyConf = e.target.checked; render(); } }), ' только конфликты ПК'),
       h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(visible) }, '🖥 Расставить ПК'),
+      h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(visible) }, '🧠 Расставить ВР'),
+      h('button', { id: 'scVrs', title: 'История и метки ВР (новичок / опытный / нестабильный)', onclick: vrModal }, '👥 ВР'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = !A.canEdit();
+    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = !A.canEdit();
     bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }
