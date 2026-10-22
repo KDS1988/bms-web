@@ -144,11 +144,11 @@
     if (st.code === 'missing') return { text: m.vr ? '· не назначен в BMS' : '', cls: m.vr ? 'acc-grey' : 'acc-none', act: m.vr && st.slot ? 'assign' : null, st, link: l };
     if (st.code === 'other') return { text: '≠ в BMS: ' + st.other, cls: 'acc-bad', act: 'replace', st, link: l };
     const [text, cls] = ACC[st.code] || [st.code, 'acc-none'];
-    return { text, cls, act: st.code === 'not_appointed' ? 'notify' : st.code === 'declined' ? 'replace' : null, st, link: l };
+    return { text, cls, act: st.code === 'declined' ? 'replace' : null, st, link: l };
   }
   function accCell(m) {
     const a = accOf(m), can = A.canEdit(), l = a.link;
-    const btn = can && a.act ? h('button', { class: 'sc-send', title: a.act === 'notify' ? 'Отправить уведомление ВР' : a.act === 'replace' ? 'Назначить этого ВР вместо текущего и отправить' : 'Назначить ВР в BMS и отправить', onclick: () => sendVr(m) }, a.act === 'notify' ? '✉' : '→ BMS') : null;
+    const btn = can && a.act ? h('button', { class: 'sc-send', title: (a.act === 'replace' ? 'Назначить этого ВР вместо текущего' : 'Назначить ВР в BMS') + ' — серым, со ставкой, допуслугами и антенкой. Уведомление отправит менеджер из BMS', onclick: () => sendVr(m) }, '→ BMS') : null;
     const text = l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
     const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.how === 'sheet' ? 'По ID мероприятия из таблицы: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
     const pick = can ? h('button', { class: 'sc-link' + (l.how === 'manual' ? ' on' : ''), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
@@ -174,37 +174,36 @@
     if (!l.row || !a.act || !a.st || !a.st.slot) { if (!silent) toast('Нет мероприятия BMS или места ВР', true); return { ok: false, why: 'нет мероприятия / места ВР' }; }
     const slot = a.st.slot, row = l.row;
     const what = `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1}\nМероприятие BMS: ${row.title} (${row.start})\nВР: ${m.vr}` + (a.act === 'replace' && a.st.other ? `\nВместо: ${a.st.other}` : '');
-    if (!silent && !confirm(`${a.act === 'notify' ? 'Отправить уведомление ВР' : 'Назначить в BMS и отправить уведомление'}?\n\n${what}`)) return { ok: false, why: 'отменено' };
+    if (!silent && !confirm(`Назначить ВР в BMS?\nНазначение появится серым (со ставкой, БК/ГТзипы и антенкой), уведомление отправит менеджер из BMS.\n\n${what}`)) return { ok: false, why: 'отменено' };
+    let note = '';
     try {
-      let id = slot.assignmentId;
-      if (a.act !== 'notify') {
+      {
         const cand = (await api('/api/employees', { query: { date: m.date, lineId: slot.lineId } })).candidates;
         const c = cand.find(x => C.sameName(x.name, m.vr));
         if (!c) throw new Error(`«${m.vr}» не найден в BMS среди ВР на эту дату`);
         if (!silent && c.state && c.state !== 'free' && !confirm(`${m.vr} в BMS отмечен как «${c.state === 'busy' ? 'занят' : 'не может'}». Всё равно назначить?`)) return { ok: false, why: 'отменено' };
-        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: row.eventServiceId, lineId: slot.lineId, employeeId: c.id, lineName: slot.roleName,
+        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: row.eventServiceId, lineId: slot.lineId, employeeId: c.id, lineName: 'Выпускающий режиссер',   // ВР: сервер сам добавит ставку, допуслуги и «работает удалённо»
           replaceAssignmentId: a.act === 'replace' && slot.assignmentId ? slot.assignmentId : undefined } });
-        id = r.assignmentId;
+        if (r.rate === 'failed') { note = 'назначен, но ставка не записалась — доначислите на вкладке «Ставки»'; if (!silent) toast(note[0].toUpperCase() + note.slice(1), true); }
       }
-      if (id) { const n = await api('/api/notify', { method: 'POST', body: { ids: [id] } }); if (n.failed && n.failed.length) throw new Error('назначен, но уведомление не ушло: ' + n.failed[0].error); }
-      if (!silent) { toast('Отправлено: ' + m.vr); await loadBms(); }
-      return { ok: true };
+      if (!silent) { toast('Назначен в BMS (серым): ' + m.vr); await loadBms(); }
+      return { ok: true, note };
     } catch (e) { if (!silent) toast(e.message, true); return { ok: false, why: e.message }; }
   }
   async function sendVrs() {
     const list = targetList().filter(m => C.alive(m) && m.vr && accOf(m).act);
-    if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, ещё не назначенным или не отправленным в BMS'); return; }
+    if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, которого ещё нет в BMS'); return; }
     const sample = list.slice(0, 10).map(m => `${A.fmtDay(m.date)} ${m.start} ${m.project} — ${m.vr}`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
-    if (!confirm(`Назначить ВР в BMS и отправить уведомления: ${list.length}\n(${ST.date ? A.fmtDay(ST.date) : 'все видимые дни'})\n\n${sample}`)) return;
+    if (!confirm(`Назначить ВР в BMS: ${list.length} (серым; уведомление отправит менеджер из BMS)\n(${ST.date ? A.fmtDay(ST.date) : 'все видимые дни'})\n\n${sample}`)) return;
     const btn = $('scSendVr'); btn.disabled = true; const report = [];
     for (const [i, m] of list.entries()) {
       btn.textContent = `Отправка ${i + 1}/${list.length}…`;
       const r = await sendVr(m, true);
-      report.push([r.ok ? 'ok' : 'err', `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1} · ${m.vr}` + (r.ok ? '' : ' — ' + r.why)]);
+      report.push([r.ok ? 'ok' : 'err', `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1} · ${m.vr}` + (r.ok ? (r.note ? ' — ' + r.note : '') : ' — ' + r.why)]);
     }
-    btn.disabled = !A.canEdit(); btn.textContent = '✉ ВР в BMS';
+    btn.disabled = !A.canEdit(); btn.textContent = '→ ВР в BMS';
     const okN = report.filter(x => x[0] === 'ok').length;
-    A.openModal(`Готово: отправлено ${okN}, ошибок ${report.length - okN}`, h('div', null, report.map(([t, txt]) => h('div', { class: 'rep ' + t }, t === 'ok' ? '✓ ' : '✗ ', txt))));
+    A.openModal(`Готово: назначено в BMS ${okN}, ошибок ${report.length - okN}`, h('div', null, report.map(([t, txt]) => h('div', { class: 'rep ' + t }, t === 'ok' ? '✓ ' : '✗ ', txt))));
     await loadBms();
   }
 
@@ -401,7 +400,7 @@
       h('label', { title: 'На какой день расставлять ВР и ПК и отправлять назначения' }, 'День ', h('select', { id: 'scDate', onchange: e => { ST.date = e.target.value; render(); } })),
       h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(targetList()) }, '🖥 Расставить ПК'),
       h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(targetList()) }, '🧠 Расставить ВР'),
-      h('button', { id: 'scSendVr', title: 'Назначить ВР в BMS и отправить уведомления (по выбранному дню)', onclick: sendVrs }, '✉ ВР в BMS'),
+      h('button', { id: 'scSendVr', title: 'Назначить ВР в BMS серым — со ставкой, допуслугами и антенкой (по выбранному дню)', onclick: sendVrs }, '→ ВР в BMS'),
       h('button', { id: 'scVrs', title: 'История и метки ВР (новичок / опытный / нестабильный)', onclick: vrModal }, '👥 ВР'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
