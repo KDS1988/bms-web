@@ -22,14 +22,13 @@
   let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
-  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['bmsId', 'ID BMS'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['acc', 'Принятие в BMS'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
+  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
   function sortList(list) {
     const k = sort.key, time = k === 'start' || k === 'end';
-    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : k === 'acc' ? accOf(m).text : k === 'bmsId' ? String(linkOf(m).id || '') : String(m[k] || '').toLowerCase();
+    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : String(m[k] || '').toLowerCase();
     return list.slice().sort((a, b) => {
       const x = val(a), y = val(b);
       // пустые значения всегда внизу
-      if (k === 'bmsId') return (x === '' ? 1 : y === '' ? -1 : (+x - +y)) * sort.dir || 0;
       if (!time && (x === '') !== (y === '')) return x === '' ? 1 : -1;
       const c = time ? x - y : x.localeCompare(y, 'ru', { numeric: true });
       return c * sort.dir || (C.span(a) || [0])[0] - (C.span(b) || [0])[0];
@@ -46,7 +45,6 @@
     const d = await api('/api/studios', { query: A.range() });
     ST.matches = d.matches; ST.configured = d.configured; ST.sync = d.sync; ST.loaded = true;
     if (!vrInfo.at && !vrInfo.tried) loadVr();
-    loadBms();
     render();
   }
   let bmsReq = 0;
@@ -215,9 +213,9 @@
       const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
         statusCell(m), cell(m, 'support'), cell(m, 'engineer'),
         cell(m, 'studio', { list: 'sc-studios', cls: 'w90' }), cell(m, 'pc', { list: 'sc-pcs-' + (m.studio || ''), cls: 'w50' }),
-        cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }), bmsCell(m),
+        cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }), 
         cell(m, 'project', { cls: 'w140' }), cell(m, 't1', { cls: 'w160' }), cell(m, 't2', { cls: 'w100' }),
-        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), accCell(m), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
+        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
         cell(m, 'comment', { cls: 'w140' }), cell(m, 'scomment', { cls: 'w140' }),
         h('td', { class: 'sc-pad' }, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
@@ -384,14 +382,13 @@
       h('label', { title: 'На какой день расставлять ВР и ПК и отправлять назначения' }, 'День ', h('select', { id: 'scDate', onchange: e => { ST.date = e.target.value; render(); } })),
       h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(targetList()) }, '🖥 Расставить ПК'),
       h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(targetList()) }, '🧠 Расставить ВР'),
-      h('button', { id: 'scSendVr', title: 'Назначить ВР в BMS и отправить уведомления (по выбранному дню)', onclick: sendVrs }, '✉ ВР в BMS'),
       h('button', { id: 'scVrs', title: 'История и метки ВР (новичок / опытный / нестабильный)', onclick: vrModal }, '👥 ВР'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = $('scSendVr').disabled = !A.canEdit();
+    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = !A.canEdit();
     bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }
