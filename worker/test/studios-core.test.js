@@ -58,3 +58,16 @@ test('ВР: авторасстановка', () => {
   assert.notEqual(r2.assign[1], 'Опытный А');                                       // занят в это время
   assert.notEqual(r2.assign[1], 'Старый');                                          // давно не работал
 });
+
+test('связь с BMS: имя, автосвязка, состояние ВР', () => {
+  assert.equal(C.nameKey('Кармен Клещевич'), C.nameKey('Клещевич  Кармен'));
+  const rows = [{ date: '2026-03-01', start: '03:00', title: 'WTA 500 Мерида. Полуфинал 1', league: 'Рестрим КП Беларусь' }, { date: '2026-03-01', start: '03:00', title: 'Другое', league: 'Хоккей' }, { date: '2026-03-02', start: '03:00', title: 'WTA 500 Мерида. Полуфинал 1', league: 'Рестрим КП Беларусь' }];
+  const mm = m(1, '02:55', '04:30', { date: '2026-03-01', project: 'Рестрим КП Беларусь', t1: 'WTA 500 Мерида. Полуфинал 1', evStart: '03:00' });
+  assert.equal(C.autoLink(mm, rows), rows[0]);
+  assert.equal(C.autoLink({ ...mm, date: '2026-03-05' }, rows), null);
+  const row = { slots: { vr: [{ employee: { name: 'Клещевич Кармен' }, status: 'pending' }] } };
+  assert.equal(C.vrState({ vr: 'Кармен Клещевич' }, row).code, 'pending');
+  assert.equal(C.vrState({ vr: 'Иван Иванов' }, row).code, 'other');
+  assert.equal(C.vrState({ vr: '' }, { slots: { vr: [{ employee: null }] } }).code, 'missing');
+  assert.equal(C.vrState({ vr: 'А Б' }, null).code, 'none');
+});

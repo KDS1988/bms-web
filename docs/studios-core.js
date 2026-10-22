@@ -134,6 +134,43 @@
     return { assign, miss };
   }
 
-  const api = { planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  /** Ключ имени: слова без регистра и «ё», по алфавиту — «Иванов Иван» == «Иван Иванов». */
+  const nameKey = n => String(n || '').toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean).sort().join(' ');
+  const words = t => new Set(String(t || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3));
+
+  /** Подбор мероприятия BMS для матча: та же дата, старт в пределах 10 минут, больше всего общих слов. */
+  function autoLink(m, rows) {
+    const sts = [toMin(m.start), toMin(m.evStart)].filter(x => x != null);
+    if (!sts.length) return null;
+    const mine = words([m.project, m.t1, m.t2].join(' '));
+    let best = null, bestS = 0, tie = false;
+    for (const r of rows) {
+      if (r.date !== m.date || r.cancelled) continue;
+      const rs = toMin(r.start); if (rs == null) continue;
+      if (!sts.some(t => Math.abs(t - rs) <= 10)) continue;
+      const theirs = words([r.title, r.league, r.info].join(' '));
+      let sc = 0; for (const w of mine) if (theirs.has(w)) sc++;
+      if (sc > bestS) { best = r; bestS = sc; tie = false; } else if (sc === bestS && sc > 0) tie = true;
+    }
+    return best && bestS >= 1 && !tie ? best : null;
+  }
+
+  /**
+   * Что с ВР этого матча в BMS. row — строка доски (мероприятие), m.vr — кого поставили у нас.
+   * Возвращает { code, slot, other }: code ∈ none | missing | other | appointed | pending | declined | not_appointed.
+   */
+  function vrState(m, row) {
+    if (!row) return { code: 'none' };
+    const slots = ((row.slots && row.slots.vr) || []);
+    if (!m.vr) return { code: 'missing', slot: slots[0] || null };
+    const k = nameKey(m.vr);
+    const mine = slots.find(s => s.employee && nameKey(s.employee.name) === k);
+    if (mine) return { code: mine.status || 'not_appointed', slot: mine };
+    const other = slots.find(s => s.employee);
+    if (other) return { code: 'other', slot: other, other: other.employee.name };
+    return { code: 'missing', slot: slots[0] || null };
+  }
+
+  const api = { nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

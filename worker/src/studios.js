@@ -8,7 +8,7 @@ const TIME = /^\d{1,2}:\d{2}$/;
 
 export const STATUSES = ['', 'запланировано', 'выполнено', 'отмена', 'проблемы в студии', 'проблемы на площадке'];
 /** Поля, которые правятся на доске (после правки синхронизация их не затирает). */
-export const EDITABLE = ['studio', 'pc', 'date', 'start', 'end', 'project', 't1', 't2', 'vr', 'comm', 'status', 'support', 'engineer', 'tri', 'comment', 'scomment', 'parallel'];
+export const EDITABLE = ['bmsId', 'studio', 'pc', 'date', 'start', 'end', 'project', 't1', 't2', 'vr', 'comm', 'status', 'support', 'engineer', 'tri', 'comment', 'scomment', 'parallel'];
 
 export const toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? +m[1] * 60 + +m[2] : null; };
 export const fmtTime = t => { const n = toMin(t); return n == null ? '' : `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
@@ -23,7 +23,7 @@ export function parseSourceRow(r) {
   const vrName = str(r.vr);
   const comm = [str(r.comm1), str(r.comm2)].filter(x => x && x !== '-').join(', ');
   return {
-    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end,
+    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end, evStart: fmtTime(str(r.evStart, 8)),
     project: str(r.project, 120), t1: str(r.t1, 160), t2: str(r.t2, 160),
     cabin: ['да', 'нет'].includes(str(r.cabin, 10).toLowerCase()) ? str(r.cabin, 10).toLowerCase() : '',
     vr: vrName === '-' ? '' : vrName, comm, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '',
@@ -39,6 +39,10 @@ export function sanitizePatch(b, full) {
   put('studio', 40); put('pc', 20); put('project', 120); put('t1', 160); put('t2', 160); put('vr', 80); put('comm', 160);
   put('support', 80); put('engineer', 80); put('tri', 80); put('comment', 300); put('scomment', 300);
   if (b.parallel !== undefined) out.parallel = b.parallel === true;
+  if (b.bmsId !== undefined) {   // ID услуги мероприятия в BMS (по нему строится ссылка и назначения)
+    if (b.bmsId === '' || b.bmsId === null) out.bmsId = null;
+    else { const n = Number(b.bmsId); if (!Number.isInteger(n) || n <= 0) return { error: 'ID BMS — целое число' }; out.bmsId = n; }
+  }
   if (b.status !== undefined) { out.status = str(b.status, 40); if (!STATUSES.includes(out.status)) return { error: 'Неизвестный статус' }; }
   if (b.date !== undefined) { out.date = str(b.date, 10); if (!ISO.test(out.date)) return { error: 'Некорректная дата' }; }
   for (const k of ['start', 'end']) if (b[k] !== undefined) { out[k] = fmtTime(str(b[k], 8)); if (!out[k]) return { error: 'Время в формате ЧЧ:ММ' }; }

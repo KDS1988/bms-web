@@ -2,7 +2,7 @@
 (function () {
   const A = window.APP, C = window.StudiosCore;
   const { h, api, toast, S } = A;
-  const ST = { matches: [], configured: true, sync: null, studio: '', q: '', loaded: false, pause: 15, cap: 1, tol: 0, onlyConf: false };
+  const ST = { matches: [], configured: true, sync: null, studio: '', date: '', q: '', loaded: false, pause: 15, cap: 1, tol: 0, onlyConf: false };
   try { const s = JSON.parse(localStorage.getItem('bms_studios_cfg') || '{}'); ['pause', 'cap', 'tol'].forEach(k => { if (Number.isFinite(s[k])) ST[k] = s[k]; }); } catch (e) { /* ok */ }
   const saveCfg = () => { try { localStorage.setItem('bms_studios_cfg', JSON.stringify({ pause: ST.pause, cap: ST.cap, tol: ST.tol })); } catch (e) { /* ok */ } };
   const $ = id => document.getElementById(id);
@@ -15,16 +15,21 @@
   let draftVr = {}, draftVrMiss = 0;   // черновик расстановки ВР
   let vrInfo = { vrs: {}, at: null, list: [] };
   let visible = [];
+  let bms = { rows: [], byId: new Map() };   // мероприятия BMS за месяц: для ссылок и проверки принятия
+  const BMS_URL = id => `https://bms.vsporte.ru/events/event/${id}`;
+  const dateSel = () => ST.date || '';
+  const targetList = () => visible.filter(m => !ST.date || m.date === ST.date);
   let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
-  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
+  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['bmsId', 'ID BMS'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['acc', 'Принятие в BMS'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
   function sortList(list) {
     const k = sort.key, time = k === 'start' || k === 'end';
-    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : String(m[k] || '').toLowerCase();
+    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : k === 'acc' ? accOf(m).text : k === 'bmsId' ? String(linkOf(m).id || '') : String(m[k] || '').toLowerCase();
     return list.slice().sort((a, b) => {
       const x = val(a), y = val(b);
       // пустые значения всегда внизу
+      if (k === 'bmsId') return (x === '' ? 1 : y === '' ? -1 : (+x - +y)) * sort.dir || 0;
       if (!time && (x === '') !== (y === '')) return x === '' ? 1 : -1;
       const c = time ? x - y : x.localeCompare(y, 'ru', { numeric: true });
       return c * sort.dir || (C.span(a) || [0])[0] - (C.span(b) || [0])[0];
@@ -41,7 +46,25 @@
     const d = await api('/api/studios', { query: A.range() });
     ST.matches = d.matches; ST.configured = d.configured; ST.sync = d.sync; ST.loaded = true;
     if (!vrInfo.at && !vrInfo.tried) loadVr();
+    loadBms();
     render();
+  }
+  let bmsReq = 0;
+  async function loadBms() {
+    const my = ++bmsReq, month = S.month;
+    try {
+      const d = await api('/api/board', { query: { ...A.range(), all: '1' } });
+      if (my !== bmsReq || month !== S.month) return;
+      const rows = d.days.flatMap(x => x.rows);
+      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])) };
+      if (!document.activeElement || !document.activeElement.classList.contains('sc-in')) render();
+    } catch (e) { /* без BMS вкладка работает, просто нет проверки принятия */ }
+  }
+  /** Мероприятие BMS для матча: закреплённое вручную или подобранное по дате, времени и названию. */
+  function linkOf(m) {
+    if (m.bmsId) return { id: m.bmsId, row: bms.byId.get(m.bmsId) || null, auto: false };
+    const r = bms.rows.length ? C.autoLink(m, bms.rows) : null;
+    return r ? { id: r.eventServiceId, row: r, auto: true } : { id: null, row: null, auto: false };
   }
   async function loadVr() {
     vrInfo.tried = true;
@@ -102,7 +125,70 @@
     if (o.type) attrs.type = o.type;
     const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim(), m.date); } : null,
       onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') { pick = v; pickDate = v ? m.date : ''; } if (key === 'pc') delete draftPc[m.id]; if (key === 'vr') delete draftVr[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
-    return h('td', null, el);
+    return h('td', { class: key === 'vr' ? 'sc-vrtd' : null }, el);
+  }
+
+  const ACC = { appointed: ['✓ принял', 'acc-ok'], pending: ['⏳ ждёт', 'acc-wait'], declined: ['✗ отказ', 'acc-bad'], not_appointed: ['○ не отправлен', 'acc-grey'] };
+  /** Принятие назначения ВР в BMS: текст, класс, действие. */
+  function accOf(m) {
+    const l = linkOf(m);
+    if (!l.row) return { text: l.id ? 'нет в загруженных' : '', cls: 'acc-none', act: null, link: l };
+    const st = C.vrState(m, l.row);
+    if (st.code === 'missing') return { text: m.vr ? '· не назначен в BMS' : '', cls: m.vr ? 'acc-grey' : 'acc-none', act: m.vr && st.slot ? 'assign' : null, st, link: l };
+    if (st.code === 'other') return { text: '≠ в BMS: ' + st.other, cls: 'acc-bad', act: 'replace', st, link: l };
+    const [text, cls] = ACC[st.code] || [st.code, 'acc-none'];
+    return { text, cls, act: st.code === 'not_appointed' ? 'notify' : st.code === 'declined' ? 'replace' : null, st, link: l };
+  }
+  function bmsCell(m) {
+    const l = linkOf(m), can = A.canEdit();
+    const inp = h('input', { class: 'sc-in w70' + (l.auto ? ' sc-draft' : ''), value: l.id || '', inputmode: 'numeric', disabled: !can, placeholder: 'ID',
+      title: l.auto ? 'Подобрано автоматически по дате, времени и названию. Введите ID, чтобы закрепить' : 'ID услуги мероприятия в BMS',
+      onchange: ev => { const v = ev.target.value.trim(); if (v && !/^\d+$/.test(v)) { toast('ID — число', true); render(); return; } save(m, { bmsId: v ? Number(v) : '' }); } });
+    return h('td', null, h('div', { class: 'sc-idbox' }, inp, l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: 'Открыть мероприятие в BMS' }, '↗') : null));
+  }
+  function accCell(m) {
+    const a = accOf(m), can = A.canEdit();
+    const btn = can && a.act ? h('button', { class: 'sc-send', title: a.act === 'notify' ? 'Отправить уведомление ВР' : a.act === 'replace' ? 'Назначить этого ВР вместо текущего и отправить' : 'Назначить ВР в BMS и отправить', onclick: () => sendVr(m) }, a.act === 'notify' ? '✉' : '→ BMS') : null;
+    return h('td', { class: 'sc-acc ' + a.cls }, a.text, ' ', btn);
+  }
+
+  async function sendVr(m, silent) {
+    const a = accOf(m), l = a.link;
+    if (!l.row || !a.act || !a.st || !a.st.slot) { if (!silent) toast('Нет мероприятия BMS или места ВР', true); return { ok: false, why: 'нет мероприятия / места ВР' }; }
+    const slot = a.st.slot, row = l.row;
+    const what = `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1}\nМероприятие BMS: ${row.title} (${row.start})\nВР: ${m.vr}` + (a.act === 'replace' && a.st.other ? `\nВместо: ${a.st.other}` : '');
+    if (!silent && !confirm(`${a.act === 'notify' ? 'Отправить уведомление ВР' : 'Назначить в BMS и отправить уведомление'}?\n\n${what}`)) return { ok: false, why: 'отменено' };
+    try {
+      let id = slot.assignmentId;
+      if (a.act !== 'notify') {
+        const cand = (await api('/api/employees', { query: { date: m.date, lineId: slot.lineId } })).candidates;
+        const c = cand.find(x => C.nameKey(x.name) === C.nameKey(m.vr));
+        if (!c) throw new Error(`«${m.vr}» не найден в BMS среди ВР на эту дату`);
+        if (!silent && c.state && c.state !== 'free' && !confirm(`${m.vr} в BMS отмечен как «${c.state === 'busy' ? 'занят' : 'не может'}». Всё равно назначить?`)) return { ok: false, why: 'отменено' };
+        const r = await api('/api/assign', { method: 'POST', body: { eventServiceId: row.eventServiceId, lineId: slot.lineId, employeeId: c.id, lineName: slot.roleName,
+          replaceAssignmentId: a.act === 'replace' && slot.assignmentId ? slot.assignmentId : undefined } });
+        id = r.assignmentId;
+      }
+      if (id) { const n = await api('/api/notify', { method: 'POST', body: { ids: [id] } }); if (n.failed && n.failed.length) throw new Error('назначен, но уведомление не ушло: ' + n.failed[0].error); }
+      if (!silent) { toast('Отправлено: ' + m.vr); await loadBms(); }
+      return { ok: true };
+    } catch (e) { if (!silent) toast(e.message, true); return { ok: false, why: e.message }; }
+  }
+  async function sendVrs() {
+    const list = targetList().filter(m => C.alive(m) && m.vr && accOf(m).act);
+    if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, ещё не назначенным или не отправленным в BMS'); return; }
+    const sample = list.slice(0, 10).map(m => `${A.fmtDay(m.date)} ${m.start} ${m.project} — ${m.vr}`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
+    if (!confirm(`Назначить ВР в BMS и отправить уведомления: ${list.length}\n(${ST.date ? A.fmtDay(ST.date) : 'все видимые дни'})\n\n${sample}`)) return;
+    const btn = $('scSendVr'); btn.disabled = true; let ok = 0; const bad = [];
+    for (const [i, m] of list.entries()) {
+      btn.textContent = `Отправка ${i + 1}/${list.length}…`;
+      const r = await sendVr(m, true);
+      if (r.ok) ok++; else bad.push(`${A.fmtDay(m.date)} ${m.start} ${m.vr}: ${r.why}`);
+    }
+    btn.disabled = !A.canEdit(); btn.textContent = '✉ ВР в BMS';
+    toast(`Отправлено: ${ok}` + (bad.length ? `. Не удалось: ${bad.length} — ${bad[0]}` : ''), bad.length > 0);
+    if (bad.length > 1) console.warn(bad.join('\n'));
+    await loadBms();
   }
 
   function statusCell(m) {
@@ -129,16 +215,16 @@
       const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
         statusCell(m), cell(m, 'support'), cell(m, 'engineer'),
         cell(m, 'studio', { list: 'sc-studios', cls: 'w90' }), cell(m, 'pc', { list: 'sc-pcs-' + (m.studio || ''), cls: 'w50' }),
-        cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }),
+        cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }), bmsCell(m),
         cell(m, 'project', { cls: 'w140' }), cell(m, 't1', { cls: 'w160' }), cell(m, 't2', { cls: 'w100' }),
-        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
+        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), accCell(m), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
         cell(m, 'comment', { cls: 'w140' }), cell(m, 'scomment', { cls: 'w140' }),
-        h('td', null, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
+        h('td', { class: 'sc-pad' }, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
     });
     if (isCol) return h('div', { class: 'sc-day' }, head);
     return h('div', { class: 'sc-day' }, head, h('div', { class: 'tablewrap' }, h('table', { class: 'sc-table' },
-      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sort.key === k ? ' on' : ''), title: 'Сортировать внутри каждого дня', onclick: () => setSort(k) }, t, sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')), h('th')])),
+      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sort.key === k ? ' on' : ''), title: 'Сортировать внутри каждого дня', onclick: () => setSort(k) }, t, sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')), h('th', { class: 'sc-pad' })])),
       h('tbody', null, rows))));
   }
 
@@ -170,8 +256,14 @@
     sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
     sm.style.color = syncMsg && !syncMsg.ok || (!syncMsg && !ST.configured) ? '#c0392b' : '';
     visible = list;
+    const ds = $('scDate');
+    if (ds) {
+      const dd = [...new Set(list.map(m => m.date))].sort();
+      if (ST.date && !dd.includes(ST.date)) ST.date = '';
+      ds.replaceChildren(h('option', { value: '' }, 'все видимые дни'), ...dd.map(d => h('option', { value: d, selected: d === ST.date }, A.fmtDay(d))));
+    }
     renderDraft();
-    window.setTimeout(applyPick, 0);
+    window.setTimeout(() => { applyPick(); if (A.setStick) A.setStick(); }, 0);
     out.replaceChildren(dl, ...(body.length ? body : [h('p', { class: 'muted' }, ST.loaded ? 'В этом месяце матчей нет.' : 'Загрузка…')]));
   }
 
@@ -289,15 +381,17 @@
       h('label', { title: 'Какой нахлёст матчей на одном ПК допустим' }, 'Нахлёст на ПК ',
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
       h('label', null, h('input', { type: 'checkbox', onchange: e => { ST.onlyConf = e.target.checked; render(); } }), ' только конфликты ПК'),
-      h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(visible) }, '🖥 Расставить ПК'),
-      h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(visible) }, '🧠 Расставить ВР'),
+      h('label', { title: 'На какой день расставлять ВР и ПК и отправлять назначения' }, 'День ', h('select', { id: 'scDate', onchange: e => { ST.date = e.target.value; render(); } })),
+      h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(targetList()) }, '🖥 Расставить ПК'),
+      h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(targetList()) }, '🧠 Расставить ВР'),
+      h('button', { id: 'scSendVr', title: 'Назначить ВР в BMS и отправить уведомления (по выбранному дню)', onclick: sendVrs }, '✉ ВР в BMS'),
       h('button', { id: 'scVrs', title: 'История и метки ВР (новичок / опытный / нестабильный)', onclick: vrModal }, '👥 ВР'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = !A.canEdit();
+    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = $('scSendVr').disabled = !A.canEdit();
     bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }

@@ -371,7 +371,7 @@
   // таблица скроллится внутри себя на всю высоту экрана — шапка и колонка «Мероприятие» остаются на месте
   // верхняя панель и строка фильтров закреплены: запоминаем их высоту для CSS
   function setStick() {
-    const hd = $('top'), fl = document.querySelector('#view-board .filters'), r = document.documentElement.style;
+    const hd = $('top'), fl = document.querySelector('.view:not([hidden]) .filters'), r = document.documentElement.style;
     r.setProperty('--hh', (hd && !hd.hidden ? hd.offsetHeight : 0) + 'px');
     r.setProperty('--fh', (fl && fl.offsetParent ? fl.offsetHeight : 0) + 'px');
   }
@@ -953,7 +953,7 @@
   }
   function closeModal() { $('modal').hidden = true; }
   function openModal(title, node) { $('mTitle').textContent = title; $('mBody').replaceChildren(node); $('modal').hidden = false; }
-  window.APP = { h, api, toast, S, canEdit, range, fmtDay, closeModal, openModal };
+  window.APP = { h, api, toast, S, canEdit, range, fmtDay, closeModal, openModal, setStick };
 
   // ---------- ставки
   function renderRates() {
