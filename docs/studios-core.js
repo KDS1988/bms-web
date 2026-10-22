@@ -138,21 +138,32 @@
   const nameKey = n => String(n || '').toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean).sort().join(' ');
   const words = t => new Set(String(t || '').toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(w => w.length >= 3));
 
-  /** Подбор мероприятия BMS для матча: та же дата, старт в пределах 10 минут, больше всего общих слов. */
+  /**
+   * Подбор мероприятия BMS для матча: та же дата; BMS-мероприятие стартует в окне матча студии
+   * (от 30 минут до старта эфира и до конца) либо в пределах 10 минут от «старта события».
+   * Среди них побеждает больше общих слов в названии; без общих слов — не подбираем.
+   */
   function autoLink(m, rows) {
-    const sts = [toMin(m.start), toMin(m.evStart)].filter(x => x != null);
-    if (!sts.length) return null;
+    const s0 = toMin(m.start), ev = toMin(m.evStart);
+    let e0 = toMin(m.end);
+    if (s0 == null) return null;
+    if (e0 == null || e0 <= s0) e0 = (e0 == null ? s0 + 180 : e0 + 1440);
     const mine = words([m.project, m.t1, m.t2].join(' '));
-    let best = null, bestS = 0, tie = false;
+    let best = null, bestS = 0, bestD = 1e9, tie = false;
     for (const r of rows) {
       if (r.date !== m.date || r.cancelled) continue;
       const rs = toMin(r.start); if (rs == null) continue;
-      if (!sts.some(t => Math.abs(t - rs) <= 10)) continue;
+      const inWin = rs >= s0 - 30 && rs <= e0;
+      const nearEv = ev != null && Math.abs(rs - ev) <= 10;
+      if (!inWin && !nearEv) continue;
       const theirs = words([r.title, r.league, r.info].join(' '));
       let sc = 0; for (const w of mine) if (theirs.has(w)) sc++;
-      if (sc > bestS) { best = r; bestS = sc; tie = false; } else if (sc === bestS && sc > 0) tie = true;
+      if (!sc) continue;
+      const d = Math.abs(rs - (ev != null ? ev : s0));
+      if (sc > bestS || (sc === bestS && d < bestD)) { best = r; bestS = sc; bestD = d; tie = false; }
+      else if (sc === bestS && d === bestD) tie = true;
     }
-    return best && bestS >= 1 && !tie ? best : null;
+    return best && !tie ? best : null;
   }
 
   /**

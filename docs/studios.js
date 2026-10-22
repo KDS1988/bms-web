@@ -22,13 +22,14 @@
   let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
-  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
+  const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['acc', 'Принятие в BMS'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
   function sortList(list) {
     const k = sort.key, time = k === 'start' || k === 'end';
-    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : String(m[k] || '').toLowerCase();
+    const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : k === 'acc' ? accOf(m).text : k === 'bmsId' ? String(linkOf(m).id || '') : String(m[k] || '').toLowerCase();
     return list.slice().sort((a, b) => {
       const x = val(a), y = val(b);
       // пустые значения всегда внизу
+      if (k === 'bmsId') return (x === '' ? 1 : y === '' ? -1 : (+x - +y)) * sort.dir || 0;
       if (!time && (x === '') !== (y === '')) return x === '' ? 1 : -1;
       const c = time ? x - y : x.localeCompare(y, 'ru', { numeric: true });
       return c * sort.dir || (C.span(a) || [0])[0] - (C.span(b) || [0])[0];
@@ -45,18 +46,19 @@
     const d = await api('/api/studios', { query: A.range() });
     ST.matches = d.matches; ST.configured = d.configured; ST.sync = d.sync; ST.loaded = true;
     if (!vrInfo.at && !vrInfo.tried) loadVr();
+    loadBms();
     render();
   }
-  let bmsReq = 0;
+  let bmsReq = 0, bmsFail = false;
   async function loadBms() {
     const my = ++bmsReq, month = S.month;
     try {
       const d = await api('/api/board', { query: { ...A.range(), all: '1' } });
       if (my !== bmsReq || month !== S.month) return;
       const rows = d.days.flatMap(x => x.rows);
-      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])) };
+      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])) }; bmsFail = false;
       if (!document.activeElement || !document.activeElement.classList.contains('sc-in')) render();
-    } catch (e) { /* без BMS вкладка работает, просто нет проверки принятия */ }
+    } catch (e) { bmsFail = true; /* без BMS вкладка работает, просто нет проверки принятия */ }
   }
   /** Мероприятие BMS для матча: закреплённое вручную или подобранное по дате, времени и названию. */
   function linkOf(m) {
@@ -145,9 +147,26 @@
     return h('td', null, h('div', { class: 'sc-idbox' }, inp, l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: 'Открыть мероприятие в BMS' }, '↗') : null));
   }
   function accCell(m) {
-    const a = accOf(m), can = A.canEdit();
+    const a = accOf(m), can = A.canEdit(), l = a.link;
     const btn = can && a.act ? h('button', { class: 'sc-send', title: a.act === 'notify' ? 'Отправить уведомление ВР' : a.act === 'replace' ? 'Назначить этого ВР вместо текущего и отправить' : 'Назначить ВР в BMS и отправить', onclick: () => sendVr(m) }, a.act === 'notify' ? '✉' : '→ BMS') : null;
-    return h('td', { class: 'sc-acc ' + a.cls }, a.text, ' ', btn);
+    const text = l.id ? a.text : (bms.rows.length ? 'нет связи с BMS' : (bmsFail ? 'BMS не загрузилась' : '…'));
+    const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.auto ? 'Подобрано автоматически: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
+    const pick = can ? h('button', { class: 'sc-link' + (l.auto || !l.id ? '' : ' on'), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
+    return h('td', { class: 'sc-acc ' + a.cls }, text, ' ', btn, go, pick);
+  }
+  /** Выбор мероприятия BMS вручную: список мероприятий этого дня. */
+  function linkModal(m) {
+    const sm = C.toMin(m.start) || 0;
+    const rows = bms.rows.filter(r => r.date === m.date).sort((x, y) => Math.abs((C.toMin(x.start) || 0) - sm) - Math.abs((C.toMin(y.start) || 0) - sm));
+    const cur = linkOf(m);
+    const choose = async id => { A.closeModal(); await save(m, { bmsId: id || '' }); };
+    const list = rows.length ? rows.map(r => h('button', { class: 'sc-pickrow' + (r.eventServiceId === cur.id ? ' on' : ''), onclick: () => choose(r.eventServiceId) },
+      h('b', null, r.start), ' ', r.title, h('span', { class: 'muted' }, ` · ${r.league || ''} · ${r.service || ''} · усл. ${r.eventServiceId}`))) : [h('p', { class: 'muted' }, 'В BMS на эту дату мероприятий не найдено (или данные BMS ещё не загрузились).')];
+    const manual = h('input', { placeholder: 'или ID услуги вручную', inputmode: 'numeric' });
+    A.openModal(`Мероприятие BMS для матча: ${m.start} ${m.project} ${m.t1}`, h('div', null,
+      h('div', { class: 'form' }, manual, h('button', { onclick: () => { const v = manual.value.trim(); if (!/^\d+$/.test(v)) { toast('ID — число', true); return; } choose(Number(v)); } }, 'Привязать'),
+        m.bmsId ? h('button', { onclick: () => choose(null) }, 'Сбросить привязку') : null),
+      h('div', { class: 'sc-picklist' }, list)));
   }
 
   async function sendVr(m, silent) {
@@ -215,7 +234,7 @@
         cell(m, 'studio', { list: 'sc-studios', cls: 'w90' }), cell(m, 'pc', { list: 'sc-pcs-' + (m.studio || ''), cls: 'w50' }),
         cell(m, 'start', { cls: 'w50' }), cell(m, 'end', { cls: 'w50' }), 
         cell(m, 'project', { cls: 'w140' }), cell(m, 't1', { cls: 'w160' }), cell(m, 't2', { cls: 'w100' }),
-        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
+        cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), accCell(m), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
         cell(m, 'comment', { cls: 'w140' }), cell(m, 'scomment', { cls: 'w140' }),
         h('td', { class: 'sc-pad' }, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
@@ -382,13 +401,14 @@
       h('label', { title: 'На какой день расставлять ВР и ПК и отправлять назначения' }, 'День ', h('select', { id: 'scDate', onchange: e => { ST.date = e.target.value; render(); } })),
       h('button', { id: 'scAuto', title: 'Черновик: расставить ПК на матчи без ПК (с кабинками — где есть комментатор, без — «со стадиона»)', onclick: () => makeDraft(targetList()) }, '🖥 Расставить ПК'),
       h('button', { id: 'scAutoVr', title: 'Черновик: расставить ВР на матчи без ВР по истории работы, паузе и параллели', onclick: () => makeDraftVr(targetList()) }, '🧠 Расставить ВР'),
+      h('button', { id: 'scSendVr', title: 'Назначить ВР в BMS и отправить уведомления (по выбранному дню)', onclick: sendVrs }, '✉ ВР в BMS'),
       h('button', { id: 'scVrs', title: 'История и метки ВР (новичок / опытный / нестабильный)', onclick: vrModal }, '👥 ВР'),
       h('button', { id: 'scPick', class: 'sc-pick', hidden: true, title: 'Сбросить выбор ВР', onclick: () => setPick('') }),
       h('button', { id: 'scCollapse', title: 'Свернуть все дни', onclick: () => { (window.__scDays || []).forEach(d => collapsed.add(d)); saveCol(); render(); } }, '⊟ Свернуть все'),
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = !A.canEdit();
+    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = $('scSendVr').disabled = !A.canEdit();
     bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }

@@ -244,3 +244,6 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .sc-send { margin-left: 4px; padding: 1px 6px; font-size: 12px; cursor: pointer; }
 .sc-pad { min-width: 0; }
 #studiosOut { padding-right: 110px; }   /* свободная полоса справа: за неё удобно крутить страницу */
+.sc-link { border: 0; background: none; cursor: pointer; opacity: .55; padding: 0 3px; } .sc-link:hover, .sc-link.on { opacity: 1; }
+.sc-picklist { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow: auto; margin-top: 8px; }
+.sc-pickrow { text-align: left; padding: 6px 8px; cursor: pointer; } .sc-pickrow.on { outline: 2px solid var(--acc); }
