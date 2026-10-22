@@ -118,7 +118,7 @@
   function showTab(t) {
     S.tab = t;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    ['board', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
+    ['board', 'studios', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
     $('rangeBox').hidden = t === 'admin';
     reload();
   }
@@ -132,6 +132,7 @@
         if (!S.board) $('boardOut').replaceChildren(h('p', { class: 'muted' }, 'Загружаю ' + MONTHS[Number(S.month.slice(5)) - 1].toLowerCase() + '…'));
         await loadBoard(false, refreshNow); refreshNow = false;
       }
+      if (S.tab === 'studios') await window.Studios.load();
       if (S.tab === 'rates') { if (!S.rates) $('ratesOut').replaceChildren(h('p', { class: 'muted' }, 'Ищу назначения без ставки…')); const m = S.month, d = await api('/api/rates/missing', { query: range() }); if (m === S.month) { S.rates = d; renderRates(); } }
     } catch (e) {
       banner(e.message);
@@ -951,6 +952,8 @@
     dropDrafts(Object.keys(draft).filter(k => draft[k].eventServiceId > 0)).then(() => syncCells());
   }
   function closeModal() { $('modal').hidden = true; }
+  function openModal(title, node) { $('mTitle').textContent = title; $('mBody').replaceChildren(node); $('modal').hidden = false; }
+  window.APP = { h, api, toast, S, canEdit, range, fmtDay, closeModal, openModal };
 
   // ---------- ставки
   function renderRates() {
@@ -998,7 +1001,12 @@
   async function loadAdmin() {
     loadUsers().catch(e => toast(e.message, true));
     const s = await api('/api/admin/bms/status');
+    api('/api/studios/source').then(r => { $('scSrcStatus').textContent = r.configured ? 'Подключено: ' + r.url : 'Не подключено'; }).catch(() => {});
     $('bmsStatus').textContent = s.loggedIn ? `Сессия активна (${s.phone}, вошёл ${s.loginBy}, ${String(s.loginAt).slice(0, 16).replace('T', ' ')})` : 'Сессия BMS не активна — войдите.';
+  }
+  async function saveStudiosSrc() {
+    try { await api('/api/studios/source', { method: 'POST', body: { url: $('scUrl').value, key: $('scKey').value } }); $('scKey').value = ''; toast('Источник сохранён'); loadAdmin(); }
+    catch (e) { toast(e.message, true); }
   }
   async function sendOtp() {
     try { const r = await api('/api/admin/bms/otp', { method: 'POST', body: { phone: $('phone').value } }); $('adminMsg').textContent = r.ok ? 'Код отправлен' : 'Не удалось: ' + r.message; }
@@ -1017,6 +1025,7 @@
     $('who').textContent = `${S.user.name} · ${{ admin: 'админ', editor: 'редактор', viewer: 'просмотр' }[S.user.role]}`;
     $('tab-admin').hidden = S.user.role !== 'admin';
     $('addPlan').hidden = !canEdit();
+    window.Studios.init();
     if (!S.month) { try { S.month = sessionStorage.getItem('bms_month'); } catch (e) { /* ok */ } }
     if (!S.month) S.month = curMonth();
     renderMonths(); showTab('board');
@@ -1040,6 +1049,7 @@
     $('collapseAll').onclick = () => { (S.board ? S.board.days : []).forEach(d => collapsed.add(d.date)); saveCollapsed(); if (S.board) renderBoard(); };
     $('expandAll').onclick = () => { collapsed.clear(); saveCollapsed(); if (S.board) renderBoard(); };
     $('addPlan').onclick = () => openPlanModal(null);
+    $('scSrcSave').onclick = saveStudiosSrc;
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
     document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
     window.addEventListener('resize', fitGrid);
@@ -1047,6 +1057,8 @@
   }
 
   bind();
+  // запуск после того, как отработали остальные скрипты страницы (studios.js)
+  document.addEventListener('DOMContentLoaded', () => {
   if (DEMO) {
     S.user = window.DEMO('/api/me').user; S.token = 'demo';
     start();
@@ -1057,4 +1069,5 @@
       api('/api/me').then(d => { S.user = d.user; start(); }).catch(() => { logout(); initGoogle(); });
     } else { $('login').hidden = false; initGoogle(); }
   }
+  });
 })();

@@ -309,3 +309,21 @@ test('BMS: отправка назначения — тело простым т�
   assert.equal(calls[0][1].body, '43182');
   assert.equal(calls[0][1].headers['content-type'], 'application/x-www-form-urlencoded');
 });
+
+import { parseSourceRow, sanitizePatch, mergeDay, matchKey } from '../src/studios.js';
+test('студии: разбор строки источника и слияние с сохранением правок', () => {
+  const m = parseSourceRow({ studio: 'Калужская', pc: '01', date: '2026-03-01', start: '2:55', end: '4:30', project: 'Рестрим КП Беларусь', t1: 'WTA', t2: '', vr: 'Кармен Клещевич', comm1: '', comm2: '' });
+  assert.equal(m.start, '02:55'); assert.equal(m.vr, 'Кармен Клещевич');
+  assert.equal(parseSourceRow({ date: '', start: '1:00', end: '2:00' }), null);
+  const k = matchKey(m);
+  let day = mergeDay([], [m]);
+  assert.equal(day.length, 1);
+  day[0].ov = { vr: true }; day[0].vr = 'Другой';
+  const again = mergeDay(day, [{ ...m, vr: 'Кармен Клещевич', pc: '05' }]);
+  assert.equal(again[0].vr, 'Другой'); assert.equal(again[0].pc, '05'); assert.equal(again[0].id, day[0].id);
+  assert.ok(k);
+  assert.equal(mergeDay(again, []).length, 1);          // правленый остаётся
+  assert.equal(mergeDay(mergeDay([], [m]), []).length, 0); // нетронутый уходит
+  assert.ok(sanitizePatch({ start: '25' }).error);
+  assert.equal(sanitizePatch({ pc: ' 03 ' }).patch.pc, '03');
+});

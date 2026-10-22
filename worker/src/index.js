@@ -5,6 +5,7 @@
 import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard, roleGroupKey } from './board.js';
 import { sanitizePlan } from './plans.js';
+import { parseSourceRow, sanitizePatch } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
@@ -298,6 +299,46 @@ async function route(req, env, url, ctx) {
     return { ok: true };
   }
 
+  // ---- СТУДИИ
+  if (path === '/api/studios' && req.method === 'GET') {
+    need('viewer'); checkRange(from, to);
+    const r = await sessionStub(env).studiosGet(from, to);
+    return { ...r, matches: r.matches.filter(m => !m.hidden) };
+  }
+  if (path === '/api/studios/source') {
+    need('admin');
+    const st = sessionStub(env);
+    if (req.method === 'POST') {
+      const b = await body(req);
+      const u = String(b.url || '').trim(), k = String(b.key || '').trim();
+      if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) throw new HttpError(400, 'Нужна ссылка веб-приложения Apps Script (…/exec)');
+      if (!k) throw new HttpError(400, 'Нужен ключ');
+      await st.studiosSrcSet({ url: u, key: k });
+      return { ok: true };
+    }
+    const src = await st.studiosSrcGet();
+    return { configured: !!src, url: src ? src.url : '' };
+  }
+  if (path === '/api/studios/sync' && req.method === 'POST') {
+    need('editor');
+    return syncStudios(env, user.name || user.email);
+  }
+  if (path === '/api/studios' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    const r = sanitizePatch(b, !b.id);
+    if (r.error) throw new HttpError(400, r.error);
+    const m = await sessionStub(env).studiosSave(b.id ? String(b.id) : null, r.patch, user.name || user.email);
+    if (!m) throw new HttpError(404, 'Такого матча уже нет');
+    return { match: m };
+  }
+  if (path === '/api/studios/delete' && req.method === 'POST') {
+    need('editor');
+    const b = await body(req);
+    if (!(await sessionStub(env).studiosDelete(String(b.id || '')))) throw new HttpError(404, 'Такого матча уже нет');
+    return { ok: true };
+  }
+
   // ---- общий черновик
   if (path === '/api/draft' && req.method === 'GET') {
     need('viewer');
@@ -422,6 +463,21 @@ async function route(req, env, url, ctx) {
   throw new HttpError(404, 'Не найдено');
 }
 
+/** Читает лист-источник через Apps Script и обновляет матчи студий. */
+export async function syncStudios(env, by) {
+  const st = sessionStub(env);
+  const src = await st.studiosSrcGet();
+  if (!src) throw new HttpError(400, 'Источник не подключён: Админ → «Студии»');
+  const d = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
+  const res = await fetch(`${src.url}?key=${encodeURIComponent(src.key)}&from=${d}`, { redirect: 'follow' });
+  if (!res.ok) throw new HttpError(502, 'Источник ответил ' + res.status);
+  let data;
+  try { data = await res.json(); } catch { throw new HttpError(502, 'Источник вернул не JSON (проверьте доступ веб-приложения)'); }
+  if (data.error) throw new HttpError(502, 'Источник: ' + data.error);
+  const matches = (data.rows || []).map(parseSourceRow).filter(Boolean);
+  return st.studiosSyncApply(matches, d, by);
+}
+
 export default {
   async fetch(req, env, ctx) {
     const cors = corsHeaders(req, env);
@@ -443,6 +499,7 @@ export default {
 
   // раз в 5 минут держим «тёплыми» снимки текущего и следующего месяца — первый заход не ждёт BMS
   async scheduled(event, env, ctx) {
+    ctx.waitUntil(syncStudios(env, 'авто').catch(e => { if (!/не подключ/.test(String(e.message))) console.error('studios', String(e.message || e)); }));
     const client = makeClient(env);
     const now = new Date();
     for (let i = 0; i < 2; i++) {

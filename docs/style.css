@@ -205,3 +205,18 @@ tr.planned td.ev{border-left:3px dashed var(--mut)}
 .sendbtn{margin-left:4px;padding:0 6px;line-height:20px;border-radius:5px;cursor:pointer;font-size:13px}
 .sendbtn:hover{border-color:var(--acc);color:var(--acc)}
 .daysend{float:right;margin-left:10px;padding:1px 10px;font-size:12px;font-weight:500}
+
+/* ---- СТУДИИ */
+.sc-day { margin: 0 0 18px; }
+.sc-dayhead { position: sticky; left: 0; padding: 6px 4px; font-size: 15px; }
+.sc-need { margin-left: 10px; padding: 1px 8px; border-radius: 10px; background: var(--chip-bg, #e8eefc); font-weight: 600; }
+.sc-warn { color: #c0392b; font-weight: 600; }
+.sc-table { border-collapse: collapse; font-size: 13px; }
+.sc-table th { text-align: left; padding: 4px 6px; white-space: nowrap; position: sticky; top: 0; background: var(--bg, #fff); }
+.sc-table td { padding: 1px 2px; border-top: 1px solid rgba(128,128,128,.25); }
+.sc-in { width: 100%; box-sizing: border-box; border: 1px solid transparent; background: transparent; color: inherit; font: inherit; padding: 3px 4px; }
+.sc-in:hover:not(:disabled), .sc-in:focus { border-color: rgba(128,128,128,.5); background: var(--bg, #fff); }
+.w50 { min-width: 50px; width: 56px; } .w90 { min-width: 90px; } .w100 { min-width: 100px; } .w110 { min-width: 110px; } .w130 { min-width: 130px; } .w140 { min-width: 140px; } .w160 { min-width: 160px; }
+tr.sc-conf td { background: rgba(231, 76, 60, .18); }
+tr.sc-cancel td { opacity: .5; text-decoration: line-through; }
+.sc-del { border: 0; background: none; cursor: pointer; opacity: .5; } .sc-del:hover { opacity: 1; color: #c0392b; }

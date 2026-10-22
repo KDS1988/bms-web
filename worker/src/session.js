@@ -8,6 +8,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { bmsFetch } from './bms.js';
+import { mergeDay } from './studios.js';
 
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
 
@@ -210,6 +211,91 @@ export class BmsSession extends DurableObject {
     const put = { plans: all, bv: ((await this.ctx.storage.get('bv')) || 0) + 1 };
     if (changed) { put.drafts = drafts; put.dv = ((await this.ctx.storage.get('dv')) || 0) + 1; }
     await this.ctx.storage.put(put);
+  }
+
+
+  // ---- СТУДИИ: матчи по дням (ключ «sm:ГГГГ-ММ-ДД»), чтобы не упираться в лимит значения
+  async studiosGet(from, to) {
+    const keys = [];
+    for (let d = new Date(from + 'T00:00:00Z'), end = new Date(to + 'T00:00:00Z'); d <= end; d = new Date(d.getTime() + 86400000)) keys.push('sm:' + d.toISOString().slice(0, 10));
+    const out = [];
+    for (let i = 0; i < keys.length; i += 100) {
+      const got = await this.ctx.storage.get(keys.slice(i, i + 100));
+      for (const v of got.values()) out.push(...v);
+    }
+    const [src, last] = await Promise.all([this.ctx.storage.get('studiosSrc'), this.ctx.storage.get('studiosSync')]);
+    return { matches: out, configured: !!(src && src.url), sync: last || null };
+  }
+
+  async studiosSrcGet() { return (await this.ctx.storage.get('studiosSrc')) || null; }
+  async studiosSrcSet(src) { await this.ctx.storage.put('studiosSrc', src); }
+
+  async #bumpStudios() { await this.ctx.storage.put('bv', ((await this.ctx.storage.get('bv')) || 0) + 1); }
+
+  async studiosSyncApply(matches, minDate, by) {
+    const byDate = new Map();
+    for (const m of matches) (byDate.get(m.date) || byDate.set(m.date, []).get(m.date)).push(m);
+    const all = await this.ctx.storage.list({ prefix: 'sm:' });
+    const dates = new Set(byDate.keys());
+    for (const k of all.keys()) { const d = k.slice(3); if (d >= minDate) dates.add(d); }
+    const put = {}, del = [];
+    let added = 0;
+    for (const d of dates) {
+      const ex = all.get('sm:' + d) || [];
+      const next = mergeDay(ex, byDate.get(d) || []);
+      added += next.filter(n => !ex.some(e => e.id === n.id)).length;
+      if (next.length) put['sm:' + d] = next; else if (ex.length) del.push('sm:' + d);
+    }
+    const keys = Object.keys(put);
+    for (let i = 0; i < keys.length; i += 100) await this.ctx.storage.put(Object.fromEntries(keys.slice(i, i + 100).map(k => [k, put[k]])));
+    for (let i = 0; i < del.length; i += 100) await this.ctx.storage.delete(del.slice(i, i + 100));
+    const info = { at: new Date().toISOString(), by, rows: matches.length, added };
+    await this.ctx.storage.put('studiosSync', info);
+    await this.#bumpStudios();
+    return info;
+  }
+
+  /** Правка (id есть) или добавление (id нет, manual) одного матча. */
+  async studiosSave(id, patch, by) {
+    if (id) {
+      for (const [k, list] of await this.ctx.storage.list({ prefix: 'sm:' })) {
+        const i = list.findIndex(m => m.id === id);
+        if (i < 0) continue;
+        const cur = list[i];
+        const next = { ...cur, ...patch, by, at: new Date().toISOString(), ov: { ...(cur.ov || {}) } };
+        for (const f of Object.keys(patch)) next.ov[f] = true;
+        list.splice(i, 1);
+        if (next.date === cur.date) { list.push(next); await this.ctx.storage.put(k, list); }
+        else {
+          if (list.length) await this.ctx.storage.put(k, list); else await this.ctx.storage.delete(k);
+          const key2 = 'sm:' + next.date, l2 = (await this.ctx.storage.get(key2)) || [];
+          l2.push(next); await this.ctx.storage.put(key2, l2);
+        }
+        await this.#bumpStudios();
+        return next;
+      }
+      return null;
+    }
+    const seq = ((await this.ctx.storage.get('studioSeq')) || 0) + 1;
+    const m = { studio: '', pc: '', project: '', t1: '', t2: '', vr: '', comm: '', status: '', support: '', engineer: '', tri: '', comment: '', scomment: '', ...patch, id: 'm' + seq, manual: true, by, at: new Date().toISOString() };
+    const key = 'sm:' + m.date, list = (await this.ctx.storage.get(key)) || [];
+    list.push(m);
+    await this.ctx.storage.put({ [key]: list, studioSeq: seq });
+    await this.#bumpStudios();
+    return m;
+  }
+
+  async studiosDelete(id) {
+    for (const [k, list] of await this.ctx.storage.list({ prefix: 'sm:' })) {
+      const i = list.findIndex(m => m.id === id);
+      if (i < 0) continue;
+      const cur = list[i];
+      if (cur.manual) list.splice(i, 1); else list[i] = { ...cur, hidden: true, ov: { ...(cur.ov || {}), hidden: true } };
+      await this.ctx.storage.put(k, list);
+      await this.#bumpStudios();
+      return true;
+    }
+    return false;
   }
 
   // ---- снимки доски (сжатый JSON): отдаём мгновенно, обновляем в фоне

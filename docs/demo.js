@@ -43,7 +43,7 @@
     return rows;
   }
 
-  let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {};
+  let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {}; const smatches = []; let sseq = 0;
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/board') {
@@ -65,6 +65,25 @@
     if (path === '/api/admin/users') return { owners: ['demo@example.com'], users: { 'ivan@example.com': { name: 'Иван', addedAt: '2026-10-10T10:00:00', addedBy: 'demo' } }, requests: { 'petr@example.com': { name: 'Пётр Сидоров', at: '2026-10-17T20:00:00' } } };
     if (path.startsWith('/api/admin/users/')) return { ok: true };
     if (path === '/api/lines') return { lines: Object.entries(ROLES).map(([g, n], i) => ({ id: i + 1, name: n, group: g })) };
+    if (path === '/api/studios/source') return { configured: true, url: 'https://script.google.com/macros/s/DEMO/exec' };
+    if (path === '/api/studios/sync') return { rows: 12, added: 0 };
+    if (path === '/api/studios/delete') { const i = smatches.findIndex(m => m.id === opts.body.id); if (i >= 0) smatches.splice(i, 1); return { ok: true }; }
+    if (path === '/api/studios') {
+      if ((opts.method || 'GET') === 'GET') {
+        if (!smatches.length) {
+          const P = [['КХЛ_ПАК', 'Адмирал', 'Барыс'], ['КХЛ_ПАК', 'Салават Юлаев', 'Ак Барс'], ['Junior Hockey', 'Омские Ястребы', 'Мамонты Югры'], ['Рестрим КП Беларусь', 'WTA 1000 Индиан-Уэллс', ''], ['НСФЛ', 'Мурмаши', 'Раменки']];
+          for (let d = new Date(q.from + 'T00:00:00Z'), k = 0; iso(d) <= q.to; d = add(d, 1)) for (let i = 0; i < 6; i++, k++) {
+            const p = P[(k + i) % P.length], st = 10 * 60 + i * 50 + (k % 3) * 20, en = st + 120;
+            const f = n => String(Math.floor(n / 60) % 24).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+            smatches.push({ id: 's' + k, studio: 'Калужская', pc: String(1 + (i % 4)).padStart(2, '0'), date: iso(d), start: f(st), end: f(en), project: p[0], t1: p[1], t2: p[2], vr: ['Кармен Клещевич', 'Роман Губайдулин', ''][i % 3], comm: i % 2 ? 'со стадиона' : '', status: '', support: '', engineer: '', tri: '', comment: '', scomment: '' });
+          }
+        }
+        return { matches: smatches.filter(m => m.date >= q.from && m.date <= q.to), configured: true, sync: { at: new Date().toISOString(), by: 'демо', rows: 0, added: 0 } };
+      }
+      const b = opts.body;
+      if (b.id) { const m = smatches.find(x => x.id === b.id); Object.assign(m, b); return { match: m }; }
+      const m = { id: 'm' + (++sseq), manual: true, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '', ...b }; smatches.push(m); return { match: m };
+    }
     if (path === '/api/notify') return { sent: opts.body.ids, failed: [] };
     if (path === '/api/trips') { if (opts.body.on) tstore[opts.body.key] = 1; else delete tstore[opts.body.key]; return { ok: true }; }
     if (path === '/api/plans' && (opts.method || 'GET') === 'GET') return { plans: plans.filter(p => p.date >= q.from && p.date <= q.to), trips: Object.keys(tstore) };

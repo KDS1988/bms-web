@@ -1,0 +1,64 @@
+// Чистая логика вкладки «СТУДИИ»: время, пересечения, подсчёт ВР. Без DOM — проверяется тестами.
+(function (root) {
+  const toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? +m[1] * 60 + +m[2] : null; };
+  /** Интервал матча в минутах от начала его даты; конец раньше начала = переход через полночь. */
+  function span(m) {
+    const s = toMin(m.start); let e = toMin(m.end);
+    if (s == null || e == null) return null;
+    if (e <= s) e += 1440;
+    return [s, e];
+  }
+  const alive = m => m.status !== 'отмена';
+
+  /** Пересекаются ли два матча (tol — допустимый нахлёст в минутах). */
+  function overlap(a, b, tol) {
+    const x = span(a), y = span(b);
+    if (!x || !y) return false;
+    return Math.min(x[1], y[1]) - Math.max(x[0], y[0]) > (tol || 0);
+  }
+
+  /** Матчи, с которыми конфликтует m на том же ПК той же студии в тот же день. */
+  function pcConflicts(m, all, tol) {
+    if (!m.pc || !m.studio || !alive(m)) return [];
+    return all.filter(o => o.id !== m.id && alive(o) && o.date === m.date && o.studio === m.studio && o.pc === m.pc && overlap(m, o, tol));
+  }
+
+  /**
+   * Может ли ВР, у которого уже есть матчи list, взять матч m.
+   * cfg.pause — пауза между матчами (мин); cfg.cap — сколько матчей одного проекта можно вести одновременно (1 = параллели нет).
+   * Параллель возможна только внутри одного проекта.
+   */
+  function canTake(list, m, cfg) {
+    const sm = span(m); if (!sm) return true;
+    let par = 0;
+    for (const x of list) {
+      if (x.id === m.id || !alive(x) || x.date !== m.date) continue;
+      const sx = span(x); if (!sx) continue;
+      const ov = Math.min(sx[1], sm[1]) - Math.max(sx[0], sm[0]) > 0;
+      if (ov) {
+        const same = x.project && x.project === m.project;
+        if (!(same && cfg.cap > 1)) return false;
+        par++;
+      } else {
+        const gap = sm[0] >= sx[1] ? sm[0] - sx[1] : sx[0] - sm[1];
+        if (gap < cfg.pause) return false;
+      }
+    }
+    return par + 1 <= cfg.cap;
+  }
+
+  /** Минимальное число ВР на день (жадно по началу матча) + раскладка. */
+  function minVr(matches, cfg) {
+    const list = matches.filter(alive).slice().sort((a, b) => (span(a) || [0])[0] - (span(b) || [0])[0]);
+    const bins = [];
+    for (const m of list) {
+      if (!span(m)) continue;
+      const b = bins.find(bin => canTake(bin, m, cfg));
+      if (b) b.push(m); else bins.push([m]);
+    }
+    return { count: bins.length, bins };
+  }
+
+  const api = { toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
+})(typeof window !== 'undefined' ? window : globalThis);

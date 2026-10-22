@@ -1,0 +1,83 @@
+/**
+ * Вкладка «СТУДИИ»: рестримы из таблицы-источника (лист «ВНОСИТЬ СЮДА!!!»),
+ * те же столбцы, что в таблице студий.
+ * Строка источника приходит из Apps Script уже разобранной (см. apps-script/studios-export.gs).
+ */
+const ISO = /^\d{4}-\d{2}-\d{2}$/;
+const TIME = /^\d{1,2}:\d{2}$/;
+
+export const STATUSES = ['', 'запланировано', 'выполнено', 'отмена', 'проблемы в студии', 'проблемы на площадке'];
+/** Поля, которые правятся на доске (после правки синхронизация их не затирает). */
+export const EDITABLE = ['studio', 'pc', 'date', 'start', 'end', 'project', 't1', 't2', 'vr', 'comm', 'status', 'support', 'engineer', 'tri', 'comment', 'scomment', 'parallel'];
+
+export const toMin = t => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? +m[1] * 60 + +m[2] : null; };
+export const fmtTime = t => { const n = toMin(t); return n == null ? '' : `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
+
+const str = (v, max = 200) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, max);
+
+/** Строка из Apps Script → матч. null — строка не годится (нет даты/времени). */
+export function parseSourceRow(r) {
+  const date = str(r.date, 10);
+  const start = fmtTime(str(r.start, 8)), end = fmtTime(str(r.end, 8));
+  if (!ISO.test(date) || !start || !end) return null;
+  const vrName = str(r.vr);
+  const comm = [str(r.comm1), str(r.comm2)].filter(x => x && x !== '-').join(', ');
+  return {
+    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end,
+    project: str(r.project, 120), t1: str(r.t1, 160), t2: str(r.t2, 160),
+    vr: vrName === '-' ? '' : vrName, comm, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '',
+  };
+}
+
+export function matchKey(m) { return [m.date, m.start, m.end, m.project, m.t1, m.t2].join('|'); }
+
+/** Ручная правка/добавление: оставляем только известные поля. */
+export function sanitizePatch(b, full) {
+  const out = {};
+  const put = (k, max) => { if (b[k] !== undefined) out[k] = str(b[k], max); };
+  put('studio', 40); put('pc', 20); put('project', 120); put('t1', 160); put('t2', 160); put('vr', 80); put('comm', 160);
+  put('support', 80); put('engineer', 80); put('tri', 80); put('comment', 300); put('scomment', 300);
+  if (b.parallel !== undefined) out.parallel = b.parallel === true;
+  if (b.status !== undefined) { out.status = str(b.status, 40); if (!STATUSES.includes(out.status)) return { error: 'Неизвестный статус' }; }
+  if (b.date !== undefined) { out.date = str(b.date, 10); if (!ISO.test(out.date)) return { error: 'Некорректная дата' }; }
+  for (const k of ['start', 'end']) if (b[k] !== undefined) { out[k] = fmtTime(str(b[k], 8)); if (!out[k]) return { error: 'Время в формате ЧЧ:ММ' }; }
+  if (full && (!out.date || !out.start || !out.end)) return { error: 'Нужны дата, начало и конец' };
+  return { patch: out };
+}
+
+/**
+ * Слияние: existing — матчи одной даты, incoming — свежие из источника.
+ * Возвращает новый список. Ручные правки (ov) и ручные матчи (manual) не трогаем.
+ */
+export function mergeDay(existing, incoming) {
+  const byKey = new Map();
+  for (const e of existing) if (!e.manual) { const k = e.k; (byKey.get(k) || byKey.set(k, []).get(k)).push(e); }
+  const seen = new Map();
+  const out = existing.filter(e => e.manual);
+  for (const inc of incoming) {
+    const k = matchKey(inc);
+    const n = seen.get(k) || 0; seen.set(k, n + 1);
+    const cand = (byKey.get(k) || [])[n];
+    if (cand) {
+      const ov = cand.ov || {};
+      const next = { ...cand };
+      for (const f of Object.keys(inc)) if (!ov[f]) next[f] = inc[f];
+      out.push(next);
+    } else {
+      out.push({ ...inc, id: 's' + hash(k + '#' + n), k, ov: {} });
+    }
+  }
+  // источник матч убрал, но человек уже что-то правил — оставляем
+  for (const e of existing) {
+    if (e.manual) continue;
+    const k = e.k, n = (byKey.get(k) || []).indexOf(e);
+    if (n >= (seen.get(k) || 0) && e.ov && Object.keys(e.ov).length) out.push(e);
+  }
+  return out.sort((a, b) => toMin(a.start) - toMin(b.start) || a.id.localeCompare(b.id));
+}
+
+export function hash(s) {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
