@@ -339,3 +339,10 @@ test('ВР: статистика и автометки', () => {
   assert.equal(autoLabel(st['Новый Человек'], '2026-10-22'), 'новичок');
   assert.equal(autoLabel({ n: 40, bad: 6, first: '2025-09-01', last: '2026-10-01' }, '2026-10-22'), 'нестабильный');
 });
+
+test('студии: ID мероприятия BMS из последнего столбца', () => {
+  const base = { studio: 'К', pc: '1', date: '2026-10-30', start: '17:45', end: '20:30', project: 'КХЛ_ПАК', t1: 'Лада', t2: '' };
+  assert.equal(parseSourceRow({ ...base, eid: '15901' }).eventId, 15901);
+  assert.equal(parseSourceRow({ ...base, eid: '-' }).eventId, null);
+  assert.equal(parseSourceRow({ ...base }).eventId, null);
+});

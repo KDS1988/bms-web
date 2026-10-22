@@ -25,6 +25,8 @@ function doGet(e) {
   var hdr = -1;
   for (var i = 0; i < Math.min(v.length, 10); i++) if (String(v[i][0]).trim().toLowerCase() === 'студия') { hdr = i; break; }
   if (hdr < 0) return out_({ error: 'header not found' });
+  var eidCol = v[hdr].map(function (c) { return String(c).trim().toLowerCase(); }).indexOf('id мероприятия');
+  if (eidCol < 0) eidCol = v[hdr].length - 1;   // ID мероприятия BMS — в последнем столбце
   var from = e.parameter.from || '';            // yyyy-MM-dd — отдаём только строки не раньше этой даты
   var rows = [];
   for (var r = hdr + 1; r < v.length; r++) {
@@ -35,7 +37,7 @@ function doGet(e) {
       studio: x[0], pc: String(x[1]), date: date,
       start: fmtTime_(x[4], tz), evStart: fmtTime_(x[5], tz), end: fmtTime_(x[6], tz),
       project: x[7], t1: x[9], t2: x[10],
-      vr: x[15], comm1: x[18], comm2: x[19], cabin: x[17]
+      vr: x[15], comm1: x[18], comm2: x[19], cabin: x[17], eid: x[eidCol]
     });
   }
   return out_({ rows: rows });

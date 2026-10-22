@@ -82,7 +82,7 @@
           for (let d = new Date(q.from + 'T00:00:00Z'), k = 0; iso(d) <= q.to; d = add(d, 1)) for (let i = 0; i < 6; i++, k++) {
             const p = P[(k + i) % P.length], st = 10 * 60 + i * 50 + (k % 3) * 20, en = st + 120;
             const f = n => String(Math.floor(n / 60) % 24).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
-            smatches.push({ id: 's' + k, studio: 'Калужская', pc: String(1 + (i % 4)).padStart(2, '0'), date: iso(d), start: f(st), end: f(en), project: p[0], t1: p[1], t2: p[2], vr: ['Кармен Клещевич', 'Роман Губайдулин', ''][i % 3], comm: i % 2 ? 'со стадиона' : '', status: '', support: '', engineer: '', tri: '', comment: '', scomment: '' });
+            smatches.push({ id: 's' + k, studio: 'Калужская', pc: String(1 + (i % 4)).padStart(2, '0'), date: iso(d), start: f(st), end: f(en), project: p[0], t1: p[1], t2: p[2], vr: ['Кармен Клещевич', 'Роман Губайдулин', ''][i % 3], eventId: i === 0 ? 1000 + k % 5 : null, comm: i % 2 ? 'со стадиона' : '', status: '', support: '', engineer: '', tri: '', comment: '', scomment: '' });
           }
         }
         return { matches: smatches.filter(m => m.date >= q.from && m.date <= q.to), configured: true, sync: { at: new Date().toISOString(), by: 'демо', rows: 0, added: 0 } };

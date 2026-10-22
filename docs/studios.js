@@ -60,11 +60,18 @@
       if (!document.activeElement || !document.activeElement.classList.contains('sc-in')) render();
     } catch (e) { bmsFail = true; /* без BMS вкладка работает, просто нет проверки принятия */ }
   }
-  /** Мероприятие BMS для матча: закреплённое вручную или подобранное по дате, времени и названию. */
+  /**
+   * Мероприятие BMS для матча: сначала закреплённое вручную (🔗), иначе по «ID мероприятия» из листа
+   * «ВНОСИТЬ СЮДА!!!». Если у мероприятия несколько услуг, берём «Студия», затем ту, где есть место ВР.
+   */
   function linkOf(m) {
-    if (m.bmsId) return { id: m.bmsId, row: bms.byId.get(m.bmsId) || null, auto: false };
-    const r = bms.rows.length ? C.autoLink(m, bms.rows) : null;
-    return r ? { id: r.eventServiceId, row: r, auto: true } : { id: null, row: null, auto: false };
+    if (m.bmsId) return { id: m.bmsId, row: bms.byId.get(m.bmsId) || null, how: 'manual' };
+    if (m.eventId) {
+      const rs = bms.rows.filter(r => r.eventId === m.eventId);
+      const r = rs.find(x => /студи/i.test(x.service || '')) || rs.find(x => x.slots && x.slots.vr && x.slots.vr.length) || rs[0] || null;
+      if (r) return { id: r.eventServiceId, row: r, how: 'sheet' };
+    }
+    return { id: null, row: null, how: '' };
   }
   async function loadVr() {
     vrInfo.tried = true;
@@ -139,19 +146,12 @@
     const [text, cls] = ACC[st.code] || [st.code, 'acc-none'];
     return { text, cls, act: st.code === 'not_appointed' ? 'notify' : st.code === 'declined' ? 'replace' : null, st, link: l };
   }
-  function bmsCell(m) {
-    const l = linkOf(m), can = A.canEdit();
-    const inp = h('input', { class: 'sc-in w70' + (l.auto ? ' sc-draft' : ''), value: l.id || '', inputmode: 'numeric', disabled: !can, placeholder: 'ID',
-      title: l.auto ? 'Подобрано автоматически по дате, времени и названию. Введите ID, чтобы закрепить' : 'ID услуги мероприятия в BMS',
-      onchange: ev => { const v = ev.target.value.trim(); if (v && !/^\d+$/.test(v)) { toast('ID — число', true); render(); return; } save(m, { bmsId: v ? Number(v) : '' }); } });
-    return h('td', null, h('div', { class: 'sc-idbox' }, inp, l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: 'Открыть мероприятие в BMS' }, '↗') : null));
-  }
   function accCell(m) {
     const a = accOf(m), can = A.canEdit(), l = a.link;
     const btn = can && a.act ? h('button', { class: 'sc-send', title: a.act === 'notify' ? 'Отправить уведомление ВР' : a.act === 'replace' ? 'Назначить этого ВР вместо текущего и отправить' : 'Назначить ВР в BMS и отправить', onclick: () => sendVr(m) }, a.act === 'notify' ? '✉' : '→ BMS') : null;
-    const text = l.id ? a.text : (bms.rows.length ? 'нет связи с BMS' : (bmsFail ? 'BMS не загрузилась' : '…'));
-    const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.auto ? 'Подобрано автоматически: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
-    const pick = can ? h('button', { class: 'sc-link' + (l.auto || !l.id ? '' : ' on'), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
+    const text = l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
+    const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.how === 'sheet' ? 'По ID мероприятия из таблицы: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
+    const pick = can ? h('button', { class: 'sc-link' + (l.how === 'manual' ? ' on' : ''), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
     return h('td', { class: 'sc-acc ' + a.cls }, text, ' ', btn, go, pick);
   }
   /** Выбор мероприятия BMS вручную: список мероприятий этого дня. */

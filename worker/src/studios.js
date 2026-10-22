@@ -23,7 +23,7 @@ export function parseSourceRow(r) {
   const vrName = str(r.vr);
   const comm = [str(r.comm1), str(r.comm2)].filter(x => x && x !== '-').join(', ');
   return {
-    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end, evStart: fmtTime(str(r.evStart, 8)),
+    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end, evStart: fmtTime(str(r.evStart, 8)), eventId: /^\d{3,9}$/.test(str(r.eid, 12)) ? Number(str(r.eid, 12)) : null,
     project: str(r.project, 120), t1: str(r.t1, 160), t2: str(r.t2, 160),
     cabin: ['да', 'нет'].includes(str(r.cabin, 10).toLowerCase()) ? str(r.cabin, 10).toLowerCase() : '',
     vr: vrName === '-' ? '' : vrName, comm, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '',
