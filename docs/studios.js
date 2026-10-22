@@ -178,7 +178,7 @@
     let note = '';
     try {
       {
-        const cand = (await api('/api/employees', { query: { date: m.date, lineId: slot.lineId } })).candidates;
+        const cand = (await api('/api/employees', { query: { date: m.date, lineId: slot.roleId } })).candidates;   // справочная должность, как на доске
         const c = cand.find(x => C.sameName(x.name, m.vr));
         if (!c) throw new Error(`«${m.vr}» не найден в BMS среди ВР на эту дату`);
         if (!silent && c.state && c.state !== 'free' && !confirm(`${m.vr} в BMS отмечен как «${c.state === 'busy' ? 'занят' : 'не может'}». Всё равно назначить?`)) return { ok: false, why: 'отменено' };
