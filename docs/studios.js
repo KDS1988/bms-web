@@ -13,7 +13,7 @@
   let draftPc = {};   // черновик расстановки ПК: id матча → ПК (не сохранён)
   let draftMiss = 0;
   let visible = [];
-  let pick = '';   // ВР, для которого затемняем недоступные матчи
+  let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
   let sort = { key: 'start', dir: 1 };
   try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
   const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
@@ -64,29 +64,29 @@
   function applyPick() {
     const out = $('studiosOut'); if (!out) return;
     const lab = $('scPick');
-    if (lab) { lab.textContent = pick ? `ВР: ${pick} ✕` : ''; lab.hidden = !pick; }
+    if (lab) { lab.textContent = pick ? `ВР: ${pick} (${A.fmtDay(pickDate)}) ✕` : ''; lab.hidden = !pick; }
     const byId = new Map(ST.matches.map(m => [m.id, m]));
     const mine = new Map();
-    if (pick) ST.matches.forEach(m => { if (m.vr === pick && C.alive(m)) (mine.get(m.date) || mine.set(m.date, []).get(m.date)).push(m); });
+    if (pick) ST.matches.forEach(m => { if (m.vr === pick && m.date === pickDate && C.alive(m)) (mine.get(m.date) || mine.set(m.date, []).get(m.date)).push(m); });
     out.querySelectorAll('tr[data-id]').forEach(tr => {
       const m = byId.get(tr.dataset.id);
       let dim = false, own = false;
-      if (pick && m) {
+      if (pick && m && m.date === pickDate) {
         own = m.vr === pick;
         dim = !own && !C.canTake((mine.get(m.date) || []), m, cfg());
       }
       tr.classList.toggle('sc-dim', dim); tr.classList.toggle('sc-own', own);
     });
   }
-  function setPick(v) { pick = v || ''; applyPick(); }
+  function setPick(v, date) { pick = v || ''; pickDate = pick ? date : ''; applyPick(); }
 
   function cell(m, key, o = {}) {
     const can = A.canEdit();
     const dr = key === 'pc' && !m.pc && draftPc[m.id];
     const attrs = { class: 'sc-in ' + (o.cls || '') + (dr ? ' sc-draft' : ''), value: m[key] || dr || '', disabled: !can, list: o.list, title: dr ? 'Черновик — ещё не сохранён' : null };
     if (o.type) attrs.type = o.type;
-    const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim()); } : null,
-      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') pick = v; if (key === 'pc') delete draftPc[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
+    const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim(), m.date); } : null,
+      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') { pick = v; pickDate = v ? m.date : ''; } if (key === 'pc') delete draftPc[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
     return h('td', null, el);
   }
 

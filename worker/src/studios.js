@@ -25,7 +25,7 @@ export function parseSourceRow(r) {
   return {
     studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end,
     project: str(r.project, 120), t1: str(r.t1, 160), t2: str(r.t2, 160),
-    ...(str(r.cabin, 10).toLowerCase() === 'да' ? { cabin: true } : {}),
+    cabin: ['да', 'нет'].includes(str(r.cabin, 10).toLowerCase()) ? str(r.cabin, 10).toLowerCase() : '',
     vr: vrName === '-' ? '' : vrName, comm, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '',
   };
 }

@@ -31,11 +31,13 @@ test('ПК: авторасстановка с кабинками', () => {
   const all = [k(1, '10:00', '12:00', { comm: 'Иван Иванов' }), k(2, '10:30', '12:30', { comm: 'Пётр Петров' }), k(3, '10:00', '12:00', { comm: 'со стадиона' }), k(4, '11:00', '13:00', { comm: '' }), k(5, '12:00', '14:00', { comm: 'Иван Иванов' }), k(6, '10:00', '12:00', { studio: 'Алматы' })];
   const r = C.planPcs(all, all, 0);
   assert.equal(r.assign[1], '01'); assert.equal(r.assign[2], '02');
-  assert.equal(r.assign[3], '12'); assert.equal(r.assign[4], '13');       // без комментатора — ПК без кабинки
+  assert.equal(r.assign[3], '12');                                       // «со стадиона» — без кабинки
+  assert.equal(r.assign[4], '03');                                       // комментатор не проставлен — кабинка нужна
   assert.equal(r.assign[5], '01');                                       // освободился после 12:00
+  assert.equal(C.needsCabin({ comm: '', cabin: 'нет' }), false); assert.equal(C.needsCabin({ comm: '' }), true);
   assert.equal(r.assign[6], undefined);
   const busy = Array.from({ length: 7 }, (_, i) => k(100 + i, '10:00', '12:00', { pc: C.PC_POOLS['Калужская'].plain[i] }));
-  const x = k(200, '11:00', '12:00', { comm: '' });
+  const x = k(200, '11:00', '12:00', { comm: '', cabin: 'нет' });
   assert.equal(C.planPcs([...busy, x], [x], 0).miss.length, 1);
   assert.equal(C.planPcs([k(1, '10:00', '12:00', { pc: '01', comm: 'А Б' }), k(2, '11:00', '13:00', { comm: 'А Б' })], [k(2, '11:00', '13:00', { comm: 'А Б' })], 0).assign[2], '02');
 });
