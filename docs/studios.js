@@ -20,10 +20,14 @@
   const dateSel = () => ST.date || '';
   const targetList = () => visible.filter(m => !ST.date || m.date === ST.date);
   let pick = '', pickDate = '';   // ВР, для которого затемняем недоступные матчи
-  let sort = { key: 'start', dir: 1 };
-  try { const x = JSON.parse(localStorage.getItem('bms_sc_sort') || 'null'); if (x && x.key) sort = x; } catch (e) { /* ok */ }
+  // сортировка у каждого дня своя: клик по заголовку меняет только этот день
+  let sorts = {};
+  try { sorts = JSON.parse(sessionStorage.getItem('bms_sc_sorts') || '{}'); } catch (e) { /* ok */ }
+  const DEF_SORT = { key: 'start', dir: 1 };
+  const sortOf = date => sorts[date] || DEF_SORT;
   const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['acc', 'Принятие в BMS'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
-  function sortList(list) {
+  function sortList(list, date) {
+    const sort = sortOf(date);
     const k = sort.key, time = k === 'start' || k === 'end';
     const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : k === 'acc' ? accOf(m).text : k === 'bmsId' ? String(linkOf(m).id || '') : String(m[k] || '').toLowerCase();
     return list.slice().sort((a, b) => {
@@ -35,9 +39,10 @@
       return c * sort.dir || (C.span(a) || [0])[0] - (C.span(b) || [0])[0];
     });
   }
-  function setSort(k) {
-    sort = sort.key === k ? { key: k, dir: -sort.dir } : { key: k, dir: 1 };
-    try { localStorage.setItem('bms_sc_sort', JSON.stringify(sort)); } catch (e) { /* ok */ }
+  function setSort(date, k) {
+    const cur = sortOf(date);
+    sorts[date] = cur.key === k ? { key: k, dir: -cur.dir } : { key: k, dir: 1 };
+    try { sessionStorage.setItem('bms_sc_sorts', JSON.stringify(sorts)); } catch (e) { /* ok */ }
     render();
   }
   const cfg = () => ({ pause: ST.pause, cap: ST.cap });
@@ -49,16 +54,16 @@
     loadBms();
     render();
   }
-  let bmsReq = 0, bmsFail = false;
+  let bmsReq = 0, bmsFail = false, bmsErr = '';
   async function loadBms(fresh) {
     const my = ++bmsReq, month = S.month;
     try {
       const d = await api('/api/board', { query: { ...A.range(), all: '1', ...(fresh ? { fresh: '1' } : {}) } });
       if (my !== bmsReq || month !== S.month) return;
       const rows = d.days.flatMap(x => x.rows);
-      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])), at: d.generatedAt || null, stale: !!d.stale }; bmsFail = false;
+      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])), at: d.generatedAt || null, stale: !!d.stale }; bmsFail = false; bmsErr = '';
       if (!document.activeElement || !document.activeElement.classList.contains('sc-in')) render();
-    } catch (e) { bmsFail = true; /* без BMS вкладка работает, просто нет проверки принятия */ }
+    } catch (e) { bmsFail = true; bmsErr = e.message; /* без BMS вкладка работает, просто нет проверки принятия */ }
   }
   /**
    * Мероприятие BMS для матча: сначала закреплённое вручную (🔗), иначе по «ID мероприятия» из листа
@@ -244,7 +249,7 @@
     head.append(h('span', { class: 'sc-need', title: 'Минимум ВР при выбранной паузе между матчами' }, `нужно ВР: ${need.count}`),
       h('span', { class: 'muted' }, ` · поставлено: ${assigned.size}`));
     if (assigned.size && assigned.size < need.count) head.append(h('span', { class: 'sc-warn' }, ` · не хватает ${need.count - assigned.size}`));
-    const rows = isCol ? [] : sortList(list).map(m => {
+    const rows = isCol ? [] : sortList(list, date).map(m => {
       const conf = C.pcConflicts(m, ST.matches, ST.tol);
       const vrBad = m.vr && C.alive(m) && !C.canTake(list.filter(x => x.id !== m.id && x.vr === m.vr), m, cfg());
       const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
@@ -259,7 +264,7 @@
     });
     if (isCol) return h('div', { class: 'sc-day' }, head);
     return h('div', { class: 'sc-day' }, head, h('div', { class: 'tablewrap' }, h('table', { class: 'sc-table' },
-      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sort.key === k ? ' on' : ''), title: 'Сортировать внутри каждого дня', onclick: () => setSort(k) }, t, sort.key === k ? (sort.dir > 0 ? ' ▲' : ' ▼') : '')), h('th', { class: 'sc-pad' })])),
+      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sortOf(date).key === k ? ' on' : ''), title: 'Сортировать только этот день', onclick: () => setSort(date, k) }, t, sortOf(date).key === k ? (sortOf(date).dir > 0 ? ' ▲' : ' ▼') : '')), h('th', { class: 'sc-pad' })])),
       h('tbody', null, rows))));
   }
 
@@ -288,7 +293,8 @@
     window.__scDays = [...days.keys()];
     const info = ST.sync ? `Синхронизация: ${String(ST.sync.at).slice(0, 16).replace('T', ' ')} UTC, ${ST.sync.by}` : 'Синхронизации ещё не было';
     const sm = $('scInfo');
-    sm.textContent = syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`;
+    const bmsInfo = bmsErr ? ` · BMS не загрузилась: ${bmsErr}` : (bms.rows.length ? ` · BMS: ${bms.rows.length} мероприятий` : ' · BMS загружается…');
+    sm.textContent = (syncMsg ? syncMsg.text : (ST.configured ? info : 'Источник не подключён: Админ → «Студии: источник матчей»') + ` · матчей: ${list.length}`) + bmsInfo;
     sm.style.color = syncMsg && !syncMsg.ok || (!syncMsg && !ST.configured) ? '#c0392b' : '';
     visible = list;
     const ds = $('scDate');
