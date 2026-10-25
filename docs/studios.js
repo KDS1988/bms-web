@@ -50,13 +50,13 @@
     render();
   }
   let bmsReq = 0, bmsFail = false;
-  async function loadBms() {
+  async function loadBms(fresh) {
     const my = ++bmsReq, month = S.month;
     try {
-      const d = await api('/api/board', { query: { ...A.range(), all: '1' } });
+      const d = await api('/api/board', { query: { ...A.range(), all: '1', ...(fresh ? { fresh: '1' } : {}) } });
       if (my !== bmsReq || month !== S.month) return;
       const rows = d.days.flatMap(x => x.rows);
-      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])) }; bmsFail = false;
+      bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])), at: d.generatedAt || null, stale: !!d.stale }; bmsFail = false;
       if (!document.activeElement || !document.activeElement.classList.contains('sc-in')) render();
     } catch (e) { bmsFail = true; /* без BMS вкладка работает, просто нет проверки принятия */ }
   }
@@ -153,7 +153,25 @@
     const text = l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
     const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.how === 'sheet' ? 'По ID мероприятия из таблицы: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
     const pick = can ? h('button', { class: 'sc-link' + (l.how === 'manual' ? ' on' : ''), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
-    return h('td', { class: 'sc-acc ' + a.cls }, text, ' ', btn, go, pick);
+    return h('td', { class: 'sc-acc ' + a.cls }, h('span', { class: 'sc-acctext', title: 'Что доска видит в BMS по этому матчу', onclick: () => diagModal(m) }, text), ' ', btn, go, pick);
+  }
+  /** Диагностика: что именно доска видит в BMS по матчу (услуги мероприятия и места ВР). */
+  function diagModal(m) {
+    const l = linkOf(m), box = h('div');
+    const draw = () => {
+      const rs = m.bmsId ? [bms.byId.get(m.bmsId)].filter(Boolean) : (m.eventId ? bms.rows.filter(r => r.eventId === m.eventId) : []);
+      const age = bms.at ? Math.round((Date.now() - bms.at) / 1000) + ' с назад' : 'неизвестно';
+      box.replaceChildren(
+        h('p', { class: 'muted' }, `Матч: ${m.date} ${m.start} · ${m.project} ${m.t1} · ВР в таблице: ${m.vr || '—'}`),
+        h('p', { class: 'muted' }, `ID мероприятия из таблицы: ${m.eventId || '—'}` + (m.bmsId ? ` · закреплено вручную: услуга ${m.bmsId}` : '') + ` · данные BMS загружены: ${age}` + (bms.stale ? ' (обновляются)' : '') + ` · всего мероприятий за месяц: ${bms.rows.length}`),
+        h('div', { class: 'form' }, h('button', { onclick: async ev => { ev.target.disabled = true; ev.target.textContent = 'Читаю BMS…'; await loadBms(true); draw(); } }, '⟳ Перечитать BMS заново')),
+        ...(rs.length ? rs.map(r => h('div', { class: 'sc-diag' },
+          h('b', null, `${r.service || 'услуга'} · усл. ${r.eventServiceId} · мер. ${r.eventId} · ${r.start} · ${r.title}`),
+          ...Object.entries(r.slots || {}).flatMap(([g, arr]) => arr.filter(sl => g === 'vr' || sl.employee).map(sl =>
+            h('div', null, `${g === 'vr' ? 'ВР-место' : g}: ${sl.roleName} → ${sl.employee ? sl.employee.name + ' (' + (sl.status || 'не отправлен') + ')' : 'пусто'}`))))) :
+          [h('p', { class: 'sc-warn' }, m.eventId || m.bmsId ? 'Такого мероприятия нет в данных BMS за этот месяц (проверьте ID или перечитайте BMS).' : 'У матча нет ID мероприятия.')]));
+    };
+    draw(); A.openModal('Что видит доска в BMS', box);
   }
   /** Выбор мероприятия BMS вручную: список мероприятий этого дня. */
   function linkModal(m) {

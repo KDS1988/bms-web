@@ -247,3 +247,5 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .sc-link { border: 0; background: none; cursor: pointer; opacity: .55; padding: 0 3px; } .sc-link:hover, .sc-link.on { opacity: 1; }
 .sc-picklist { display: flex; flex-direction: column; gap: 4px; max-height: 55vh; overflow: auto; margin-top: 8px; }
 .sc-pickrow { text-align: left; padding: 6px 8px; cursor: pointer; } .sc-pickrow.on { outline: 2px solid var(--acc); }
+.sc-acctext { cursor: help; text-decoration: underline dotted; }
+.sc-diag { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
