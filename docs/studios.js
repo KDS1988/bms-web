@@ -69,7 +69,7 @@
     if (m.eventId) {
       const rs = bms.rows.filter(r => r.eventId === m.eventId);
       const r = rs.find(x => /студи/i.test(x.service || '')) || rs.find(x => x.slots && x.slots.vr && x.slots.vr.length) || rs[0] || null;
-      if (r) return { id: r.eventServiceId, row: r, how: 'sheet' };
+      if (r) return { id: r.eventServiceId, row: r, rows: rs, how: 'sheet' };
     }
     return { id: null, row: null, how: '' };
   }
@@ -140,10 +140,11 @@
   function accOf(m) {
     const l = linkOf(m);
     if (!l.row) return { text: l.id ? 'нет в загруженных' : '', cls: 'acc-none', act: null, link: l };
-    const st = C.vrState(m, l.row);
-    if (st.code === 'missing') return { text: m.vr ? '· не назначен в BMS' : '', cls: m.vr ? 'acc-grey' : 'acc-none', act: m.vr && st.slot ? 'assign' : null, st, link: l };
+    const st = C.vrState(m, l.rows || [l.row]);
+    if (st.code === 'missing') return { text: m.vr ? '· не назначен в BMS' : '', cls: m.vr ? 'acc-grey' : 'acc-none', act: m.vr && st.slot && st.row ? 'assign' : null, st, link: l };
     if (st.code === 'other') return { text: '≠ в BMS: ' + st.other, cls: 'acc-bad', act: 'replace', st, link: l };
-    const [text, cls] = ACC[st.code] || [st.code, 'acc-none'];
+    const [text0, cls] = ACC[st.code] || [st.code, 'acc-none'];
+    const text = st.foreign ? text0 + ' (другая должность)' : text0;
     return { text, cls, act: st.code === 'declined' ? 'replace' : null, st, link: l };
   }
   function accCell(m) {
@@ -172,7 +173,7 @@
   async function sendVr(m, silent) {
     const a = accOf(m), l = a.link;
     if (!l.row || !a.act || !a.st || !a.st.slot) { if (!silent) toast('Нет мероприятия BMS или места ВР', true); return { ok: false, why: 'нет мероприятия / места ВР' }; }
-    const slot = a.st.slot, row = l.row;
+    const slot = a.st.slot, row = a.st.row || l.row;
     const what = `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1}\nМероприятие BMS: ${row.title} (${row.start})\nВР: ${m.vr}` + (a.act === 'replace' && a.st.other ? `\nВместо: ${a.st.other}` : '');
     if (!silent && !confirm(`Назначить ВР в BMS?\nНазначение появится серым (со ставкой, БК/ГТзипы и антенкой), уведомление отправит менеджер из BMS.\n\n${what}`)) return { ok: false, why: 'отменено' };
     let note = '';

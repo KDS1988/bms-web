@@ -177,16 +177,23 @@
    * Что с ВР этого матча в BMS. row — строка доски (мероприятие), m.vr — кого поставили у нас.
    * Возвращает { code, slot, other }: code ∈ none | missing | other | appointed | pending | declined | not_appointed.
    */
-  function vrState(m, row) {
-    if (!row) return { code: 'none' };
-    const slots = ((row.slots && row.slots.vr) || []);
-    if (!m.vr) return { code: 'missing', slot: slots[0] || null };
-    const k = nameKey(m.vr);
-    const mine = slots.find(s => s.employee && sameName(s.employee.name, m.vr));
-    if (mine) return { code: mine.status || 'not_appointed', slot: mine };
-    const other = slots.find(s => s.employee);
-    if (other) return { code: 'other', slot: other, other: other.employee.name };
-    return { code: 'missing', slot: slots[0] || null };
+  function vrState(m, rowOrRows) {
+    const rows = (Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]).filter(Boolean);
+    if (!rows.length) return { code: 'none' };
+    const vrSlots = r => ((r.slots && r.slots.vr) || []).map(slot => ({ slot, row: r }));
+    const all = rows.flatMap(vrSlots);
+    // предпочитаем услугу «Студия», затем ту, где вообще есть место ВР
+    const pref = all.find(x => /студи/i.test(x.row.service || '')) || all[0] || null;
+    if (!m.vr) return { code: 'missing', slot: pref && pref.slot, row: pref && pref.row };
+    const mine = all.find(x => x.slot.employee && sameName(x.slot.employee.name, m.vr));
+    if (mine) return { code: mine.slot.status || 'not_appointed', slot: mine.slot, row: mine.row };
+    // нужный человек мог попасть в другую должность той же услуги — тогда только показываем, не трогаем
+    for (const r of rows) for (const g of Object.keys(r.slots || {})) for (const sl of r.slots[g]) {
+      if (g !== 'vr' && sl.employee && sameName(sl.employee.name, m.vr)) return { code: sl.status || 'not_appointed', slot: sl, row: r, foreign: g };
+    }
+    const other = all.find(x => x.slot.employee);
+    if (other) return { code: 'other', slot: other.slot, row: other.row, other: other.slot.employee.name };
+    return { code: 'missing', slot: pref && pref.slot, row: pref && pref.row };
   }
 
   const api = { sameName, nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };

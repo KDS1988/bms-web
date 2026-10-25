@@ -79,3 +79,13 @@ test('имя: отчество в BMS не мешает', () => {
   assert.ok(!C.sameName('Иван', 'Иван Иванов'));
   assert.equal(C.vrState({ vr: 'Кармен Клещевич' }, { slots: { vr: [{ employee: { name: 'Клещевич Кармен' }, status: 'appointed' }] } }).code, 'appointed');
 });
+
+test('ВР в BMS: несколько услуг мероприятия', () => {
+  const studio = { service: 'Студия', slots: { vr: [{ employee: null, lineId: 1 }] } };
+  const live = { service: 'Прямая трансляция', slots: { vr: [{ employee: { name: 'Стахова Вероника' }, status: 'appointed' }] } };
+  assert.equal(C.vrState({ vr: 'Вероника Стахова' }, [studio, live]).code, 'appointed');
+  assert.equal(C.vrState({ vr: 'Вероника Стахова' }, [studio, live]).row, live);
+  assert.equal(C.vrState({ vr: 'Иван Иванов' }, [studio, live]).code, 'other');
+  assert.equal(C.vrState({ vr: 'Иван Иванов' }, [studio]).row, studio);
+  assert.equal(C.vrState({ vr: 'Вероника Стахова' }, [{ service: 'Студия', slots: { vr: [], prod: [{ employee: { name: 'Стахова Вероника' }, status: 'pending' }] } }]).foreign, 'prod');
+});
