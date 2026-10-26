@@ -500,7 +500,8 @@ export async function syncStudios(env, by) {
   try { data = await res.json(); } catch { throw new HttpError(502, 'Источник вернул не JSON (проверьте доступ веб-приложения)'); }
   if (data.error) throw new HttpError(502, 'Источник: ' + data.error);
   const matches = (data.rows || []).map(parseSourceRow).filter(Boolean);
-  return st.studiosSyncApply(matches, d, by);
+  const res2 = await st.studiosSyncApply(matches, d, by);
+  return { ...res2, skipped: Array.isArray(data.skipped) ? data.skipped.slice(0, 10) : [] };
 }
 
 /** Читает историю матчей из таблицы студий (тот же Apps Script, mode=history) и пересчитывает статистику ВР. */

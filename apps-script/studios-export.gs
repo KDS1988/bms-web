@@ -28,11 +28,12 @@ function doGet(e) {
   var eidCol = v[hdr].map(function (c) { return String(c).trim().toLowerCase(); }).indexOf('id мероприятия');
   if (eidCol < 0) eidCol = v[hdr].length - 1;   // ID мероприятия BMS — в последнем столбце
   var from = e.parameter.from || '';            // yyyy-MM-dd — отдаём только строки не раньше этой даты
-  var rows = [];
+  var rows = [], skipped = [];
   for (var r = hdr + 1; r < v.length; r++) {
     var x = v[r];
     var date = fmtDate_(x[2], tz);
-    if (!date || (from && date < from)) continue;
+    if (!date) { if (String(x[0]).trim() && String(x[7]).trim()) skipped.push({ row: r + 1, why: 'дата не распознана: ' + String(x[2]), project: String(x[7]) }); continue; }
+    if (from && date < from) continue;
     rows.push({
       studio: x[0], pc: String(x[1]), date: date,
       start: fmtTime_(x[4], tz), evStart: fmtTime_(x[5], tz), end: fmtTime_(x[6], tz),
@@ -40,17 +41,25 @@ function doGet(e) {
       vr: x[15], comm1: x[18], comm2: x[19], cabin: x[17], eid: x[eidCol]
     });
   }
-  return out_({ rows: rows });
+  return out_({ rows: rows, skipped: skipped.slice(0, 30) });
 }
 
 function out_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function fmtDate_(d, tz) {
-  if (Object.prototype.toString.call(d) === '[object Date]') return Utilities.formatDate(d, tz, 'yyyy-MM-dd');
-  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d)); return m ? String(d) : '';
+  if (Object.prototype.toString.call(d) === '[object Date]') return isNaN(d) ? '' : Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+  var s = String(d).trim(), m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return m[1] + '-' + m[2] + '-' + m[3];
+  m = /^(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{2,4}))?/.exec(s);   // 26.10.2026, 26.10.26, 26/10
+  if (m) {
+    var y = m[3] ? (m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3])) : Number(Utilities.formatDate(new Date(), tz, 'yyyy'));
+    return y + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2);
+  }
+  return '';
 }
 function fmtTime_(d, tz) {
-  if (Object.prototype.toString.call(d) === '[object Date]') return Utilities.formatDate(d, tz, 'HH:mm');
-  var m = /^(\d{1,2}):(\d{2})/.exec(String(d)); return m ? m[1] + ':' + m[2] : '';
+  if (Object.prototype.toString.call(d) === '[object Date]') return isNaN(d) ? '' : Utilities.formatDate(d, tz, 'HH:mm');
+  if (typeof d === 'number' && d >= 0 && d < 1) { var t = Math.round(d * 1440); return ('0' + Math.floor(t / 60)).slice(-2) + ':' + ('0' + (t % 60)).slice(-2); }
+  var m = /^(\d{1,2})[:.\-](\d{2})/.exec(String(d).trim()); return m ? ('0' + m[1]).slice(-2) + ':' + m[2] : '';
 }
 
 /** История: [дата, студия, проект, ВР, статус, начало, конец] по строкам листа «2025 (РАСПИСАНИЕ СТУДИЙ)». */

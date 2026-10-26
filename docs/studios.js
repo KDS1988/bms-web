@@ -51,7 +51,7 @@
     const d = await api('/api/studios', { query: A.range() });
     ST.matches = d.matches; ST.configured = d.configured; ST.sync = d.sync; ST.loaded = true;
     if (!vrInfo.at && !vrInfo.tried) loadVr();
-    loadBms();
+    loadBms(!bms.at);
     render();
   }
   let bmsReq = 0, bmsFail = false, bmsErr = '';
@@ -145,7 +145,14 @@
   function accOf(m) {
     const l = linkOf(m);
     if (!l.row) return { text: l.id ? 'нет в загруженных' : '', cls: 'acc-none', act: null, link: l };
-    const st = C.vrState(m, l.rows || [l.row]);
+    let st = C.vrState(m, l.rows || [l.row]);
+    if ((st.code === 'missing' || st.code === 'other') && m.vr) {
+      // ВР мог быть назначен на другое мероприятие того же времени (дубль/другой ID) — ищем по имени в этот день
+      const t0 = C.toMin(m.evStart || m.start);
+      const alt = bms.rows.filter(r => r.date === m.date && r !== l.row && !(l.rows || []).includes(r) && Math.abs(C.toMin(r.start) - t0) <= 60);
+      const st2 = alt.length ? C.vrState(m, alt) : null;
+      if (st2 && st2.code !== 'missing' && st2.code !== 'other' && st2.row) { st = st2; l.altRow = st2.row; }
+    }
     if (st.code === 'missing') return { text: m.vr ? '· не назначен в BMS' : '', cls: m.vr ? 'acc-grey' : 'acc-none', act: m.vr && st.slot && st.row ? 'assign' : null, st, link: l };
     if (st.code === 'other') return { text: '≠ в BMS: ' + st.other, cls: 'acc-bad', act: 'replace', st, link: l };
     const [text0, cls] = ACC[st.code] || [st.code, 'acc-none'];
@@ -386,7 +393,8 @@
     try {
       const r = await api('/api/studios/sync', { method: 'POST', body: {} });
       toast(`Прочитано строк: ${r.rows}, новых: ${r.added}`); await load();
-      syncMsg = { ok: true, text: `Готово: прочитано строк ${r.rows}, новых ${r.added}` };
+      const sk = (r.skipped || []);
+      syncMsg = { ok: !sk.length, text: `Готово: прочитано строк ${r.rows}, новых ${r.added}` + (sk.length ? `. Пропущено строк таблицы: ${sk.length} — ` + sk.slice(0, 4).map(x => `стр. ${x.row} (${x.project}): ${x.why}`).join('; ') : '') };
     } catch (e) {
       syncMsg = { ok: false, text: 'Не удалось прочитать таблицу: ' + e.message };
       toast(syncMsg.text, true);

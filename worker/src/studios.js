@@ -18,8 +18,10 @@ const str = (v, max = 200) => String(v == null ? '' : v).replace(/\s+/g, ' ').tr
 /** Строка из Apps Script → матч. null — строка не годится (нет даты/времени). */
 export function parseSourceRow(r) {
   const date = str(r.date, 10);
-  const start = fmtTime(str(r.start, 8)), end = fmtTime(str(r.end, 8));
-  if (!ISO.test(date) || !start || !end) return null;
+  let start = fmtTime(str(r.start, 8)), end = fmtTime(str(r.end, 8));
+  if (!start) start = fmtTime(str(r.evStart, 8));
+  if (!ISO.test(date) || !start) return null;
+  if (!end) end = fmtTime(`${String(Math.min(23, Math.floor(toMin(start) / 60) + 2)).padStart(2, '0')}:${start.slice(3)}`);   // конец не заполнен — +2 ч
   const vrName = str(r.vr);
   const comm = [str(r.comm1), str(r.comm2)].filter(x => x && x !== '-').join(', ');
   return {
