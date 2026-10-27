@@ -669,6 +669,12 @@
       const t = new Date(data.generatedAt).toLocaleTimeString('ru-RU');
       $('live').title = `Общая доска. Данные BMS от ${t}` + (data.meta ? ` · ${data.meta.items} записей, ${(data.meta.fetchMs / 1000).toFixed(1)} с на загрузку из BMS` : '');
     }
+    const ageMin = data.generatedAt ? (Date.now() - data.generatedAt) / 60000 : 0;
+    if (data.refreshError || ageMin > 3) {
+      const msg = `⚠ Данные BMS устарели (от ${new Date(data.generatedAt).toLocaleTimeString('ru-RU')}): ${data.refreshError || 'обновление не удалось'}. Назначения на доске могут не совпадать с BMS`;
+      if (!S._staleWarned || S._staleWarned !== data.generatedAt) { S._staleWarned = data.generatedAt; toast(msg, true); }
+      $('live').title = msg;
+    }
     // сервер отдал снимок и обновляет его в фоне — через пару секунд заберём свежий
     if (data.stale && staleRetries < 6) { staleRetries++; setTimeout(() => { if (month === S.month && S.tab === 'board' && !editingNow()) loadBoard(true); }, 4000); }
     else if (!data.stale) staleRetries = 0;

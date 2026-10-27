@@ -216,6 +216,11 @@ async function route(req, env, url, ctx) {
       if (snap.data) {
         const board = JSON.parse(await gunzip(snap.data));
         const stale = snap.at < snap.lw || Date.now() - snap.at > 20_000;   // после записи в BMS или старше 20 с
+        if (stale && Date.now() - snap.at > 60_000) {
+          // снимок старый — ждём свежий сами; если BMS не отвечает, честно говорим об этом
+          try { return { ...(await buildFresh(env, client, key, from, to, all)), stale: false }; }
+          catch (e) { return { ...board, stale: true, refreshError: String(e.message || e).slice(0, 200) }; }
+        }
         if (stale) ctx.waitUntil(buildFresh(env, client, key, from, to, all).catch(e => console.error('refresh', String(e))));
         return { ...board, stale };
       }
