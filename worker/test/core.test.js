@@ -29,10 +29,12 @@ const item = (over = {}) => ({
   ...over,
 });
 
-test('фильтр доски: только нужные услуги, без ХЛТР/ФХМ', () => {
+test('фильтр доски: только нужные услуги, без ФХМ', () => {
   assert.equal(isTargetItem(item()), true);
   assert.equal(isTargetItem(item({ service: { name: 'Запись' } })), false);
-  const bad = item(); bad.event.league.short_name = 'ХЛТР';
+  const bad = item(); bad.event.league.short_name = 'ФХМ';
+  const hltr = item(); hltr.event.league.short_name = 'ХЛТР';
+  assert.equal(isTargetItem(hltr), true);
   assert.equal(isTargetItem(bad), false);
 });
 
