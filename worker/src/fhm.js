@@ -17,11 +17,12 @@ async function fetchPage(key, from, to, { limit, cursor, signal }) {
   try {
     response = await fetch(url, {
       headers: { Accept: 'application/json', 'X-API-Key': key },
-      redirect: 'error', signal,
+      redirect: 'manual', signal,
     });
   } catch {
     throw new FhmError('API ФХМ не ответил. Попробуйте обновить календарь позже.');
   }
+  if (response.status >= 300 && response.status < 400) throw new FhmError('API ФХМ перенаправил запрос.', response.status);
   if (response.status === 401 || response.status === 403) {
     throw new FhmError('ФХМ не приняла ключ или не разрешила доступ к календарю.', response.status);
   }

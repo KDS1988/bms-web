@@ -24,6 +24,7 @@ test('ФХМ: календарь читает все страницы и сор�
   assert.equal(url.searchParams.get('limit'), '100');
   assert.equal(next.searchParams.get('cursor'), 'opaque+/cursor');
   assert.equal(options.headers['X-API-Key'], 'prefix.test');
+  assert.equal(options.redirect, 'manual');
 });
 
 test('ФХМ: при зацикленном курсоре календарь сообщает об ошибке', async t => {
@@ -35,4 +36,11 @@ test('ФХМ: ошибка доступа не раскрывает ключ и�
   t.mock.method(globalThis, 'fetch', async () => new Response('prefix.test', { status: 403 }));
   await assert.rejects(verifyFhmKey('prefix.test'), e =>
     e instanceof FhmError && e.status === 403 && !e.message.includes('prefix.test'));
+});
+
+
+test('ФХМ: перенаправление отклоняется, ключ не передаётся дальше', async t => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => Response.redirect('https://example.com/', 302));
+  await assert.rejects(verifyFhmKey('prefix.test'), /перенаправил запрос/);
+  assert.equal(fetch.mock.callCount(), 1);
 });

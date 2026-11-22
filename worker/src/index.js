@@ -562,22 +562,6 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     const url = new URL(req.url);
     if (url.pathname === '/health') return json({ ok: true }, 200, cors);
-    if (url.pathname === '/health/fhm' && req.method === 'GET') {
-      const diagnostic = await cached('fhm-probe', 60_000, async () => {
-        const started = Date.now();
-        try {
-          const response = await fetch('https://api.fhmoscow.com/api/integrations/broadcast/v1/matches?dateFrom=2026-11-22&dateTo=2026-11-22&limit=1', {
-            headers: { Accept: 'application/json' }, redirect: 'manual', signal: AbortSignal.timeout(25000),
-          });
-          const value = { status: response.status, format: response.headers.get('content-type'), ms: Date.now() - started };
-          await response.body?.cancel();
-          return value;
-        } catch (e) {
-          return { type: e.name, message: e.message, ms: Date.now() - started };
-        }
-      });
-      return json(diagnostic, 200, cors);
-    }
     try {
       return json(await route(req, env, url, ctx), 200, cors);
     } catch (e) {
