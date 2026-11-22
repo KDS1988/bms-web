@@ -139,8 +139,27 @@
     return { assign, miss };
   }
 
+  function stripNameNotes(name) {
+    return String(name || '').replace(/\([^()]*\)|\[[^\[\]]*\]/g, ' ').trim()
+      .replace(/(?:[\s,–—-]+(?:уд\.?|удал[её]нно|удал[её]нка))+$/iu, '').trim();
+  }
+
   /** Ключ имени: слова без регистра и «ё», по алфавиту — «Иванов Иван» == «Иван Иванов». */
-  const nameKey = n => String(n || '').toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean).sort().join(' ');
+  const nameKey = n => stripNameNotes(n).toLowerCase().replace(/ё/g, 'е').split(/[\s,]+/).filter(Boolean).sort().join(' ');
+
+  function vrOptions(names) {
+    const options = new Map();
+    const namePart = /^\p{L}\p{M}*(?:[\p{L}\p{M}]|[-'’](?=\p{L}))*$/u;
+    for (const raw of names) {
+      const parts = stripNameNotes(raw).split(/\s+/).slice(0, 2);
+      if (parts.length !== 2 || !parts.every(part => namePart.test(part))) continue;
+      const name = parts.join(' ');
+      const key = nameKey(name);
+      if (!options.has(key)) options.set(key, name);
+    }
+    return [...options.values()].sort((a, b) => a.localeCompare(b, 'ru'));
+  }
+
   /** Тот же человек: слова одного имени целиком входят в другое («Кармен Клещевич» и «Клещевич Кармен Иванович»). */
   function sameName(a, b) {
     const x = nameKey(a).split(' ').filter(Boolean), y = nameKey(b).split(' ').filter(Boolean);
@@ -201,6 +220,6 @@
     return { code: 'missing', slot: pref && pref.slot, row: pref && pref.row };
   }
 
-  const api = { sameName, nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive, isRestream, needsVr };
+  const api = { sameName, nameKey, vrOptions, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive, isRestream, needsVr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

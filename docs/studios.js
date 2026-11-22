@@ -300,7 +300,7 @@
     list.forEach(m => (days.get(m.date) || days.set(m.date, []).get(m.date)).push(m));
     const dl = h('div', null,
       h('datalist', { id: 'sc-studios' }, studios.map(s => h('option', { value: s }))),
-      h('datalist', { id: 'sc-vrs' }, [...new Set([...names('vr'), ...Object.keys(vrInfo.vrs)])].sort((a, b) => a.localeCompare(b, 'ru')).map(s => h('option', { value: s, label: vrInfo.vrs[s] ? vrInfo.vrs[s].label : '' }))),
+      h('datalist', { id: 'sc-vrs' }, C.vrOptions([...Object.keys(vrInfo.vrs), ...names('vr')]).map(name => h('option', { value: name }))),
       studios.map(s => h('datalist', { id: 'sc-pcs-' + s }, pcsOf(s).map(p => h('option', { value: p })))));
     const body = [...days.keys()].sort().map(d => dayBlock(d, days.get(d)));
     window.__scDays = [...days.keys()];
