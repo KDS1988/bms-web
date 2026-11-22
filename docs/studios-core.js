@@ -9,6 +9,9 @@
     return [s, e];
   }
   const alive = m => m.status !== 'отмена';
+  const isRestream = m => String(m.vr || '').trim().toLowerCase() === 'restream';
+  const needsVr = m => alive(m) && !isRestream(m);
+  const isKhl = m => /^КХЛ(?![\p{L}\p{N}])/iu.test(String(m.project || '').trim());
 
   /** Пересекаются ли два матча (tol — допустимый нахлёст в минутах). */
   function overlap(a, b, tol) {
@@ -26,16 +29,18 @@
   /**
    * Может ли ВР, у которого уже есть матчи list, взять матч m.
    * cfg.pause — пауза между матчами (мин); cfg.cap — сколько матчей одного проекта можно вести одновременно (1 = параллели нет).
-   * Параллель возможна только внутри одного проекта.
+   * Матчи КХЛ могут идти параллельно у одного ВР независимо от настройки.
    */
   function canTake(list, m, cfg) {
-    const sm = span(m); if (!sm) return true;
+    const sm = span(m); if (!needsVr(m) || !sm) return true;
+    const khl = isKhl(m);
     let par = 0;
     for (const x of list) {
-      if (x.id === m.id || !alive(x) || x.date !== m.date) continue;
+      if (x.id === m.id || !needsVr(x) || x.date !== m.date) continue;
       const sx = span(x); if (!sx) continue;
       const ov = Math.min(sx[1], sm[1]) - Math.max(sx[0], sm[0]) > 0;
       if (ov) {
+        if (khl && isKhl(x)) continue;
         const same = x.project && x.project === m.project;
         if (!(same && cfg.cap > 1)) return false;
         par++;
@@ -49,7 +54,7 @@
 
   /** Минимальное число ВР на день (жадно по началу матча) + раскладка. */
   function minVr(matches, cfg) {
-    const list = matches.filter(alive).slice().sort((a, b) => (span(a) || [0])[0] - (span(b) || [0])[0]);
+    const list = matches.filter(needsVr).sort((a, b) => (span(a) || [0])[0] - (span(b) || [0])[0]);
     const bins = [];
     for (const m of list) {
       if (!span(m)) continue;
@@ -105,12 +110,12 @@
   function planVrs(all, targets, info, cfg) {
     const assign = {}, miss = [];
     const active = Object.keys(info.vrs).filter(n => {
-      const e = info.vrs[n]; return e.n > 0 && (new Date(info.today) - new Date(e.last)) / 86400000 <= 120;
+      const e = info.vrs[n]; return !isRestream({ vr: n }) && e.n > 0 && (new Date(info.today) - new Date(e.last)) / 86400000 <= 120;
     });
     const load = new Map();                           // 'дата|имя' → матчи
     const key = (d, n) => d + '|' + n;
-    for (const m of all) if (m.vr && alive(m)) { const k = key(m.date, m.vr); (load.get(k) || load.set(k, []).get(k)).push(m); }
-    const todo = targets.filter(m => alive(m) && !m.vr && span(m)).slice().sort((a, b) => a.date.localeCompare(b.date) || span(a)[0] - span(b)[0]);
+    for (const m of all) if (m.vr && needsVr(m)) { const k = key(m.date, m.vr); (load.get(k) || load.set(k, []).get(k)).push(m); }
+    const todo = targets.filter(m => needsVr(m) && !m.vr && span(m)).sort((a, b) => a.date.localeCompare(b.date) || span(a)[0] - span(b)[0]);
     for (const m of todo) {
       const names = new Set(active);
       for (const k of load.keys()) if (k.startsWith(m.date + '|')) names.add(k.slice(11));
@@ -196,6 +201,6 @@
     return { code: 'missing', slot: pref && pref.slot, row: pref && pref.row };
   }
 
-  const api = { sameName, nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive };
+  const api = { sameName, nameKey, autoLink, vrState, planVrs, PC_POOLS, needsCabin, planPcs, toMin, span, overlap, pcConflicts, canTake, minVr, alive, isRestream, needsVr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.StudiosCore = api;
 })(typeof window !== 'undefined' ? window : globalThis);

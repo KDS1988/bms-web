@@ -26,6 +26,31 @@ test('ВР: пауза, параллель и минимум', () => {
   assert.equal(C.span(m(5, '23:00', '01:00'))[1], 1500);
 });
 
+test('ВР: параллель КХЛ и транзитный Restream в расписании дня', () => {
+  const khl = (id, start, end) => m(id, start, end, { project: 'КХЛ_ПАК', vr: 'ВР КХЛ' });
+  const matches = [
+    khl(1, '11:45', '14:30'), khl(2, '12:15', '15:00'),
+    khl(3, '16:45', '19:30'), khl(4, '16:45', '19:30'),
+    khl(5, '19:15', '22:00'), khl(6, '19:15', '22:00'),
+    m(7, '16:25', '19:25', { project: 'Лига PARI', vr: 'ВР 2' }),
+    m(8, '18:45', '21:15', { project: 'Лига PARI', vr: 'ВР 3' }),
+    m(9, '19:25', '21:30', { project: 'Кубок России', vr: ' Restream ', pc: '03' }),
+  ];
+  const cfg = { pause: 15, cap: 1 };
+  assert.equal(C.minVr(matches, cfg).count, 3);
+  assert.equal(new Set(matches.filter(C.needsVr).map(match => match.vr)).size, 3);
+  assert.ok(C.canTake(matches.slice(0, 5), matches[5], cfg));
+  assert.ok(!C.canTake([matches[5]], matches[7], cfg));
+  assert.ok(!C.needsVr(matches[8]));
+  assert.ok(C.alive(matches[8]));
+  const pcUser = m(10, '20:00', '21:00', { pc: '03' });
+  assert.deepEqual(C.pcConflicts(pcUser, matches, 0), [matches[8]]);
+  const open = m(11, '19:30', '20:00');
+  const info = { today: '2026-03-01', vrs: { RESTREAM: { n: 30, last: '2026-03-01' } } };
+  assert.deepEqual(C.planVrs([matches[8], open], [matches[8], open], info, cfg),
+    { assign: {}, miss: [open] });
+});
+
 test('ПК: авторасстановка с кабинками', () => {
   const k = (id, st, en, o = {}) => m(id, st, en, { studio: 'Калужская', ...o });
   const all = [k(1, '10:00', '12:00', { comm: 'Иван Иванов' }), k(2, '10:30', '12:30', { comm: 'Пётр Петров' }), k(3, '10:00', '12:00', { comm: 'со стадиона' }), k(4, '11:00', '13:00', { comm: '' }), k(5, '12:00', '14:00', { comm: 'Иван Иванов' }), k(6, '10:00', '12:00', { studio: 'Алматы' })];
@@ -55,7 +80,7 @@ test('ВР: авторасстановка', () => {
   assert.equal(r.assign[3], 'Опытный Б');
   const d = m(4, '10:00', '12:00', { project: 'КХЛ_ПАК', date: '2026-10-25', vr: 'Опытный А' });
   const r2 = C.planVrs([d, a], [a], info, { pause: 15, cap: 1 });
-  assert.notEqual(r2.assign[1], 'Опытный А');                                       // занят в это время
+  assert.equal(r2.assign[1], 'Опытный А');                                          // КХЛ можно вести параллельно
   assert.notEqual(r2.assign[1], 'Старый');                                          // давно не работал
 });
 

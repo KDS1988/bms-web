@@ -82,7 +82,8 @@
     vrInfo.tried = true;
     try {
       const d = await api('/api/studios/vr');
-      vrInfo = { vrs: Object.fromEntries(d.vrs.map(v => [v.name, v])), list: d.vrs, at: d.at, tried: true };
+      const list = d.vrs.filter(v => !C.isRestream({ vr: v.name }));
+      vrInfo = { vrs: Object.fromEntries(list.map(v => [v.name, v])), list, at: d.at, tried: true };
       render();
     } catch (e) { /* метки необязательны */ }
   }
@@ -114,7 +115,7 @@
     if (lab) { lab.textContent = pick ? `ВР: ${pick} (${A.fmtDay(pickDate)}) ✕` : ''; lab.hidden = !pick; }
     const byId = new Map(ST.matches.map(m => [m.id, m]));
     const mine = new Map();
-    if (pick) ST.matches.forEach(m => { if (m.vr === pick && m.date === pickDate && C.alive(m)) (mine.get(m.date) || mine.set(m.date, []).get(m.date)).push(m); });
+    if (pick) ST.matches.forEach(m => { if (m.vr === pick && m.date === pickDate && C.needsVr(m)) (mine.get(m.date) || mine.set(m.date, []).get(m.date)).push(m); });
     out.querySelectorAll('tr[data-id]').forEach(tr => {
       const m = byId.get(tr.dataset.id);
       let dim = false, own = false;
@@ -125,7 +126,7 @@
       tr.classList.toggle('sc-dim', dim); tr.classList.toggle('sc-own', own);
     });
   }
-  function setPick(v, date) { pick = v || ''; pickDate = pick ? date : ''; applyPick(); }
+  function setPick(v, date) { pick = C.isRestream({ vr: v }) ? '' : v || ''; pickDate = pick ? date : ''; applyPick(); }
 
   function cell(m, key, o = {}) {
     const can = A.canEdit();
@@ -136,7 +137,7 @@
       title: dr ? 'Черновик — ещё не сохранён' : (lab ? `ВР: ${lab}` : null) };
     if (o.type) attrs.type = o.type;
     const el = h('input', { ...attrs, onfocus: key === 'vr' ? ev => { if (ev.target.value.trim()) setPick(ev.target.value.trim(), m.date); } : null,
-      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') { pick = v; pickDate = v ? m.date : ''; } if (key === 'pc') delete draftPc[m.id]; if (key === 'vr') delete draftVr[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
+      onchange: ev => { const v = ev.target.value.trim(); if (key === 'vr') setPick(v, m.date); if (key === 'pc') delete draftPc[m.id]; if (key === 'vr') delete draftVr[m.id]; if (v !== (m[key] || '')) save(m, { [key]: v }); } });
     return h('td', { class: key === 'vr' ? 'sc-vrtd' : null }, el);
   }
 
@@ -144,6 +145,7 @@
   /** Принятие назначения ВР в BMS: текст, класс, действие. */
   function accOf(m) {
     const l = linkOf(m);
+    if (C.isRestream(m)) return { text: 'Не требуется', cls: 'acc-none', act: null, link: l };
     if (!l.row) return { text: l.id ? 'нет в загруженных' : '', cls: 'acc-none', act: null, link: l };
     let st = C.vrState(m, l.rows || [l.row]);
     if ((st.code === 'missing' || st.code === 'other') && m.vr) {
@@ -162,10 +164,14 @@
   function accCell(m) {
     const a = accOf(m), can = A.canEdit(), l = a.link;
     const btn = can && a.act ? h('button', { class: 'sc-send', title: (a.act === 'replace' ? 'Назначить этого ВР вместо текущего' : 'Назначить ВР в BMS') + ' — серым, со ставкой, допуслугами и антенкой. Уведомление отправит менеджер из BMS', onclick: () => sendVr(m) }, '→ BMS') : null;
-    const text = l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
+    const transit = C.isRestream(m);
+    const text = transit || l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
     const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.how === 'sheet' ? 'По ID мероприятия из таблицы: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
     const pick = can ? h('button', { class: 'sc-link' + (l.how === 'manual' ? ' on' : ''), title: l.id ? 'Выбрать другое мероприятие BMS' : 'Привязать к мероприятию BMS', onclick: () => linkModal(m) }, '🔗') : null;
-    return h('td', { class: 'sc-acc ' + a.cls }, h('span', { class: 'sc-acctext', title: 'Что доска видит в BMS по этому матчу', onclick: () => diagModal(m) }, text), ' ', btn, go, pick);
+    const status = transit
+      ? h('span', { title: 'Транзитный поток через студию' }, text)
+      : h('span', { class: 'sc-acctext', title: 'Что доска видит в BMS по этому матчу', onclick: () => diagModal(m) }, text);
+    return h('td', { class: 'sc-acc ' + a.cls }, status, ' ', btn, go, pick);
   }
   /** Диагностика: что именно доска видит в BMS по матчу (услуги мероприятия и места ВР). */
   function diagModal(m) {
@@ -222,7 +228,7 @@
     } catch (e) { if (!silent) toast(e.message, true); return { ok: false, why: e.message }; }
   }
   async function sendVrs() {
-    const list = targetList().filter(m => C.alive(m) && m.vr && accOf(m).act);
+    const list = targetList().filter(m => C.needsVr(m) && m.vr && accOf(m).act);
     if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, которого ещё нет в BMS'); return; }
     const sample = list.slice(0, 10).map(m => `${A.fmtDay(m.date)} ${m.start} ${m.project} — ${m.vr}`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
     if (!confirm(`Назначить ВР в BMS: ${list.length} (серым; уведомление отправит менеджер из BMS)\n(${ST.date ? A.fmtDay(ST.date) : 'все видимые дни'})\n\n${sample}`)) return;
@@ -252,13 +258,13 @@
       h('b', null, A.fmtDay(date)), ' ',
       h('span', { class: 'muted' }, `матчей: ${list.filter(C.alive).length}`));
     const need = C.minVr(list, cfg());
-    const assigned = new Set(list.filter(C.alive).map(m => m.vr).filter(Boolean));
+    const assigned = new Set(list.filter(C.needsVr).map(m => m.vr).filter(Boolean));
     head.append(h('span', { class: 'sc-need', title: 'Минимум ВР при выбранной паузе между матчами' }, `нужно ВР: ${need.count}`),
       h('span', { class: 'muted' }, ` · поставлено: ${assigned.size}`));
     if (assigned.size && assigned.size < need.count) head.append(h('span', { class: 'sc-warn' }, ` · не хватает ${need.count - assigned.size}`));
     const rows = isCol ? [] : sortList(list, date).map(m => {
       const conf = C.pcConflicts(m, ST.matches, ST.tol);
-      const vrBad = m.vr && C.alive(m) && !C.canTake(list.filter(x => x.id !== m.id && x.vr === m.vr), m, cfg());
+      const vrBad = m.vr && C.needsVr(m) && !C.canTake(list.filter(x => x.id !== m.id && x.vr === m.vr), m, cfg());
       const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
         statusCell(m), cell(m, 'support'), cell(m, 'engineer'),
         cell(m, 'studio', { list: 'sc-studios', cls: 'w90' }), cell(m, 'pc', { list: 'sc-pcs-' + (m.studio || ''), cls: 'w50' }),
@@ -425,7 +431,7 @@
       h('input', { type: 'search', placeholder: 'Поиск: проект, команда, ВР, ПК…', oninput: e => { ST.q = e.target.value; render(); } }),
       h('label', { title: 'Сколько минут ВР нужно между окончанием одного матча и началом следующего' }, 'Пауза между матчами ',
         h('select', { onchange: e => { ST.pause = +e.target.value; saveCfg(); render(); } }, opt([5, 10, 15, 20, 30, 45, 60], ST.pause, v => v + ' мин'))),
-      h('label', { title: 'Сколько матчей одного проекта один ВР может вести одновременно. 1 — параллели нет' }, 'Параллель в проекте ',
+      h('label', { title: 'Сколько матчей одного проекта один ВР может вести одновременно. Для КХЛ параллель разрешена всегда.' }, 'Параллель в проекте ',
         h('select', { onchange: e => { ST.cap = +e.target.value; saveCfg(); render(); } }, opt([1, 2, 3, 4], ST.cap, v => v === 1 ? 'нет' : 'до ' + v))),
       h('label', { title: 'Какой нахлёст матчей на одном ПК допустим' }, 'Нахлёст на ПК ',
         h('select', { onchange: e => { ST.tol = +e.target.value; saveCfg(); render(); } }, opt([0, 5, 10, 15], ST.tol, v => v + ' мин'))),
