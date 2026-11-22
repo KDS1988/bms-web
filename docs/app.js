@@ -76,7 +76,6 @@
 
   // ---------- вход
   function logout() {
-    window.Restreams?.clear();
     S.token = null; S.user = null; try { sessionStorage.removeItem('bms_token'); } catch (e) { /* ok */ }
     $('top').hidden = true; document.querySelectorAll('.view').forEach(v => { v.hidden = true; }); $('login').hidden = false;
   }
@@ -119,7 +118,7 @@
   function showTab(t) {
     S.tab = t;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    document.querySelectorAll('main > .view').forEach(view => { view.hidden = view.id !== 'view-' + t; });
+    ['board', 'studios', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
     $('rangeBox').hidden = t === 'admin';
     reload();
   }
@@ -134,15 +133,10 @@
         await loadBoard(false, refreshNow); refreshNow = false;
       }
       if (S.tab === 'studios') await window.Studios.load();
-      if (S.tab === 'restreams') {
-        const fresh = refreshNow;
-        refreshNow = false;
-        await window.Restreams.load({ fresh, period: range() });
-      }
       if (S.tab === 'rates') { if (!S.rates) $('ratesOut').replaceChildren(h('p', { class: 'muted' }, 'Ищу назначения без ставки…')); const m = S.month, d = await api('/api/rates/missing', { query: range() }); if (m === S.month) { S.rates = d; renderRates(); } }
     } catch (e) {
       banner(e.message);
-      if (e.code === 'bms_login' && S.user?.role === 'admin') showTab('admin');
+      if (e.code === 'bms_login' && S.user.role === 'admin') showTab('admin');
     } finally { $('reload').disabled = false; $('reload').textContent = 'Обновить'; }
   }
 
@@ -1038,7 +1032,6 @@
     $('tab-admin').hidden = S.user.role !== 'admin';
     $('addPlan').hidden = !canEdit();
     window.Studios.init();
-    window.Restreams?.init({ api, canEdit, toast, openModal, closeModal, admin: S.user.role === 'admin' });
     if (!S.month) { try { S.month = sessionStorage.getItem('bms_month'); } catch (e) { /* ok */ } }
     if (!S.month) S.month = curMonth();
     renderMonths(); showTab('board');

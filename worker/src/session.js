@@ -299,34 +299,6 @@ export class BmsSession extends DurableObject {
   }
 
 
-  async restreamConfig() {
-    return (await this.ctx.storage.get('restreamConfig')) || { source: null, rules: [] };
-  }
-
-  async restreamConfigSet(config) {
-    await this.ctx.storage.put('restreamConfig', config);
-  }
-
-  async restreamDecisions(ids) {
-    const out = {};
-    for (let i = 0; i < ids.length; i += 100) {
-      const values = await this.ctx.storage.get(ids.slice(i, i + 100).map(id => 'restream:' + id));
-      for (const [key, record] of values) out[key.slice('restream:'.length)] = record.decisions;
-    }
-    return out;
-  }
-
-  async restreamSet(id, recipient, needed, by) {
-    const key = 'restream:' + id;
-    return this.ctx.storage.transaction(async txn => {
-      const record = (await txn.get(key)) || { decisions: {}, changes: {} };
-      record.decisions[recipient] = needed;
-      record.changes[recipient] = { by, at: new Date().toISOString() };
-      await txn.put(key, record);
-      return record.decisions;
-    });
-  }
-
   // ---- история ВР (статистика) и ручные метки
   async vrGet() {
     const [stats, at, manual] = await Promise.all([this.ctx.storage.get('vrstats'), this.ctx.storage.get('vrstatsAt'), this.ctx.storage.get('vrlabels')]);

@@ -249,27 +249,3 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .sc-pickrow { text-align: left; padding: 6px 8px; cursor: pointer; } .sc-pickrow.on { outline: 2px solid var(--acc); }
 .sc-acctext { cursor: help; text-decoration: underline dotted; }
 .sc-diag { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
-
-.restream-table{max-height:72vh}
-.restream-table table{border-collapse:separate;border-spacing:0}
-.restream-table thead th{z-index:2;font-size:14px}
-.restream-table thead th:first-child{left:0;z-index:3}
-.restream-event{position:sticky;left:0;z-index:1;background:var(--panel);min-width:13rem;max-width:18rem;font-weight:400}
-.restream-event details{margin-top:5px}
-.restream-event summary,.restream-config summary{cursor:pointer}
-.restream-table th,.restream-table td{padding:8px 10px;border-right:1px solid var(--line)}
-.restream-cell{min-width:7.2rem}
-.restream-cell select{min-width:4.5rem}
-.restream-cell button{display:block;margin-top:5px;white-space:nowrap}
-.restream-ready{color:var(--okt)}
-.restream-incomplete{color:var(--waitt)}
-.restream-notice{padding:8px 12px;border-radius:6px;background:var(--wait);color:var(--waitt)}
-.restream-details{display:grid;grid-template-columns:auto minmax(0,1fr);gap:5px 10px;font-size:14px}
-.restream-details dt{color:var(--mut)}
-.restream-details dd{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;user-select:all}
-.restream-config{display:grid;gap:10px}
-.restream-config input,.restream-config textarea{display:block;width:100%;margin-top:4px}
-.restream-config textarea{resize:vertical;background:var(--bg);border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:8px}
-.restream-config pre{overflow:auto}
-.restream-config button{justify-self:start}
-@media(max-width:550px){.restream-event{min-width:10rem;max-width:10rem}}

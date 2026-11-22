@@ -44,42 +44,8 @@
   }
 
   let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {}; const smatches = []; let sseq = 0;
-  const restreamRecipients = [
-    ['input', 'Входящий поток'], ['srt', 'Исходящий SRT'], ['rtmp', 'Исходящий RTMP'],
-    ['tricolor', 'Триколор'], ['inventos', 'Инвентос'], ['league', 'Соцсети лиги'],
-    ['regional', 'Рег. ТВ'], ['sl', 'SL'], ['regional2', 'Рег. ТВ 2'], ['club', 'Соцсети клуба'], ['kp', 'КП'],
-  ].map(([id, label]) => ({ id, label }));
-  const restreamDecisions = new Map();
-  let restreamConfig = { url: '', rules: [] };
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
-    if (path === '/api/restreams/config') {
-      if (opts?.method === 'POST') { restreamConfig = { url: opts.body.url, rules: opts.body.rules }; return { ok: true }; }
-      return restreamConfig;
-    }
-    if (path === '/api/restreams') {
-      const streamFor = (eventServiceId, recipient, initial) => {
-        const needed = restreamDecisions.get(eventServiceId + ':' + recipient) ?? initial;
-        if (!needed) return { needed };
-        if (recipient === 'srt') return { needed, params: { protocol: 'SRT LISTENER', address: 'srt.example.com', port: '12000' }, missing: [] };
-        return { needed, params: {}, missing: ['protocol', 'address'] };
-      };
-      if (opts?.method === 'POST') {
-        const { eventServiceId, recipient, needed } = opts.body;
-        restreamDecisions.set(eventServiceId + ':' + recipient, needed);
-        return { stream: streamFor(eventServiceId, recipient, null) };
-      }
-      const rows = TEAMS.slice(0, 3).map(([home, away], i) => {
-        const eventServiceId = 9001 + i;
-        return {
-          eventServiceId, eventId: 7001 + i, date: iso(add(q.from, i + 2)), title: home + ' — ' + away,
-          start: '15:00', end: '17:00', league: i === 2 ? 'КХЛ' : 'РПЛ', city: 'Москва',
-          setup: { studio: 'Студия 1', pc: '02', airStart: '14:55' },
-          streams: Object.fromEntries(restreamRecipients.map(({ id }) => [id, streamFor(eventServiceId, id, id === 'srt' && i === 0 ? true : null)])),
-        };
-      });
-      return { recipients: restreamRecipients, notice: '', rows };
-    }
     if (path === '/api/board') {
       const rows = makeRows(q.from, q.to), days = [];
       rows.forEach(r => { let d = days.find(x => x.date === r.date); if (!d) days.push(d = { date: r.date, rows: [] }); d.rows.push(r); });
