@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BMS · Назначения</title>
 <script>try{var t=localStorage.getItem("bms_theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=restreams">
 </head>
 <body>
 <header id="top" hidden>
@@ -13,6 +13,7 @@
   <nav id="tabs">
     <button data-tab="board" class="on">Доска</button>
     <button data-tab="studios">СТУДИИ</button>
+    <button data-tab="restreams">ТЗ для Рестримов</button>
     <button data-tab="rates">Ставки</button>
     <button data-tab="admin" id="tab-admin" hidden>Админ</button>
   </nav>
@@ -67,6 +68,17 @@
     <div id="studiosOut"></div>
   </section>
 
+  <section id="view-restreams" class="view" hidden>
+    <div class="filters">
+      <input id="restreamSearch" type="search" aria-label="Поиск по мероприятиям" placeholder="Команда, лига или ID">
+      <label><input id="restreamMissing" type="checkbox"> Только с недостающими параметрами</label>
+      <button id="restreamSettings" hidden>Настроить источники</button>
+      <span id="restreamStatus" class="muted" role="status"></span>
+    </div>
+    <p id="restreamNotice" class="restream-notice" role="status" hidden></p>
+    <div id="restreamOut"></div>
+  </section>
+
   <section id="view-rates" class="view" hidden>
     <div class="filters">
       <button id="ratesFix" class="primary">Доначислить все ставки</button>
@@ -106,9 +118,10 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="config.js"></script>
-<script src="demo.js"></script>
+<script src="demo.js?v=restreams"></script>
 <script src="studios-core.js"></script>
-<script src="app.js"></script>
+<script src="restreams.js"></script>
+<script src="app.js?v=restreams"></script>
 <script src="studios.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </body>

@@ -5,6 +5,7 @@
 import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard, roleGroupKey } from './board.js';
 import { sanitizePlan } from './plans.js';
+import { RECIPIENTS, getRestreamDecision, parseRestreamRules, restreamEvents, restreamRow, restreamSources } from './restreams.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
@@ -35,7 +36,7 @@ function corsHeaders(req, env) {
 }
 
 const json = (data, status, cors) =>
-  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...cors } });
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...cors } });
 
 function checkRange(from, to) {
   if (!ISO.test(from || '') || !ISO.test(to || '')) throw new HttpError(400, 'Нужны даты from и to в формате ГГГГ-ММ-ДД');
@@ -206,6 +207,52 @@ async function route(req, env, url, ctx) {
   const client = makeClient(env);
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
+
+  if (path === '/api/restreams' && ['GET', 'POST'].includes(req.method)) {
+    need(req.method === 'POST' ? 'editor' : 'viewer');
+    checkRange(from, to);
+    const decision = req.method === 'POST' ? getRestreamDecision(await body(req)) : null;
+    if (req.method === 'POST' && !decision) throw new HttpError(400, 'Укажите мероприятие, получателя и Да или Нет');
+    const stub = sessionStub(env);
+    const config = await stub.restreamConfig();
+    const fresh = url.searchParams.get('fresh') === '1';
+    const events = await cached(`restream-events|${from}|${to}`, fresh ? 0 : 60_000,
+      async () => restreamEvents(await fetchAssignments(client, from, to), from, to));
+    const event = decision && events.find(row => row.eventServiceId === decision.eventServiceId);
+    if (decision && !event) throw new HttpError(404, 'Услуга «Ретрансляция» за этот период не найдена');
+    if (event?.cancelled) throw new HttpError(409, 'Услуга отменена в БМС');
+    const { sources, notice } = await loadRestreamSources(config.source, from, to, events.map(row => row.eventId), fresh);
+    if (decision) {
+      const decisions = await stub.restreamSet(decision.eventServiceId, decision.recipient, decision.needed, user.email);
+      return { stream: restreamRow(event, decisions, sources, config.rules).streams[decision.recipient] };
+    }
+    const decisions = await stub.restreamDecisions(events.map(row => row.eventServiceId));
+    return {
+      recipients: RECIPIENTS, notice,
+      rows: events.map(row => restreamRow(row, decisions[row.eventServiceId] || {}, sources, config.rules)),
+    };
+  }
+
+  if (path === '/api/restreams/config' && ['GET', 'POST'].includes(req.method)) {
+    need('admin');
+    const stub = sessionStub(env);
+    if (req.method === 'POST') {
+      const b = await body(req);
+      const rules = parseRestreamRules(b?.rules);
+      if (!rules) throw new HttpError(400, 'Некорректные правила потоков. Проверьте поля и шаблоны.');
+      const sourceUrl = typeof b?.url === 'string' ? b.url.trim() : '';
+      const key = typeof b?.key === 'string' ? b.key.trim() : '';
+      if (sourceUrl && !/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(sourceUrl)) throw new HttpError(400, 'Нужна ссылка веб-приложения Apps Script (…/exec)');
+      const saved = await stub.restreamConfig();
+      if (sourceUrl && !key && sourceUrl !== saved.source?.url) throw new HttpError(400, 'Введите ключ для нового источника');
+      if (key && (!sourceUrl || key.length < 24 || key.length > 256)) throw new HttpError(400, 'Укажите ссылку и ключ длиной от 24 до 256 символов');
+      const source = sourceUrl ? { url: sourceUrl, key: key || saved.source.key } : null;
+      await stub.restreamConfigSet({ source, rules });
+      return { ok: true };
+    }
+    const { source, rules } = await stub.restreamConfig();
+    return { url: source?.url || '', rules };
+  }
 
   if (path === '/api/board') {
     need('viewer'); checkRange(from, to);
@@ -491,6 +538,26 @@ async function route(req, env, url, ctx) {
   }
 
   throw new HttpError(404, 'Не найдено');
+}
+
+async function loadRestreamSources(source, from, to, eventIds, fresh) {
+  if (!source) return { sources: restreamSources(), notice: 'Справочник потоков Google Sheets не подключён.' };
+  try {
+    return await cached(`restream-source|${source.url}|${source.key}|${from}|${to}|${eventIds.join(",")}`, fresh ? 0 : 60_000, async () => {
+      const response = await fetch(source.url, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key: source.key, from, to, eventIds }), signal: AbortSignal.timeout(8000),
+      });
+      const data = response.ok ? await response.json() : null;
+      if (!Array.isArray(data?.rows) || !Array.isArray(data?.srt)) throw new Error('restream source unavailable');
+      return {
+        sources: restreamSources(data),
+        notice: data.srtUnavailable ? 'Таблица серверных SRT-потоков недоступна.' : '',
+      };
+    });
+  } catch {
+    return { sources: restreamSources(), notice: 'Не удалось прочитать справочник потоков Google Sheets.' };
+  }
 }
 
 /** Читает лист-источник через Apps Script и обновляет матчи студий. */
