@@ -46,6 +46,13 @@
   let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {}; const smatches = []; let sseq = 0;
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
+    if (path === '/api/admin/fhm') return { configured: true };
+    if (path === '/api/fhm/calendar') {
+      return { matches: [
+        { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', status: 'scheduled' },
+        { id: 902, date: q.from, time: '13:00', home: 'Команда Запад', away: 'Команда Юг', group: 'Группа Б', tour: '12 тур', venue: 'Ледовый дворец', status: 'finished' },
+      ] };
+    }
     if (path === '/api/board') {
       const rows = makeRows(q.from, q.to), days = [];
       rows.forEach(r => { let d = days.find(x => x.date === r.date); if (!d) days.push(d = { date: r.date, rows: [] }); d.rows.push(r); });

@@ -214,6 +214,10 @@ export class BmsSession extends DurableObject {
   }
 
 
+  async fhmConfig() { return (await this.ctx.storage.get('fhmConfig')) || null; }
+
+  async fhmConfigSet(config) { await this.ctx.storage.put('fhmConfig', config); }
+
   // ---- СТУДИИ: матчи по дням (ключ «sm:ГГГГ-ММ-ДД»), чтобы не упираться в лимит значения
   async studiosGet(from, to) {
     const keys = [];

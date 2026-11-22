@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BMS · Назначения</title>
 <script>try{var t=localStorage.getItem("bms_theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=fhm-calendar">
 </head>
 <body>
 <header id="top" hidden>
@@ -13,6 +13,7 @@
   <nav id="tabs">
     <button data-tab="board" class="on">Доска</button>
     <button data-tab="studios">СТУДИИ</button>
+    <button data-tab="fhm">ДХ</button>
     <button data-tab="rates">Ставки</button>
     <button data-tab="admin" id="tab-admin" hidden>Админ</button>
   </nav>
@@ -67,6 +68,15 @@
     <div id="studiosOut"></div>
   </section>
 
+  <section id="view-fhm" class="view" hidden>
+    <h2>Календарь матчей ФХМ</h2>
+    <div class="filters">
+      <input id="fhmSearch" type="search" placeholder="Команда, арена или группа" aria-label="Поиск матчей ФХМ">
+      <span class="muted" id="fhmStatus" role="status"></span>
+    </div>
+    <div id="fhmOut"></div>
+  </section>
+
   <section id="view-rates" class="view" hidden>
     <div class="filters">
       <button id="ratesFix" class="primary">Доначислить все ставки</button>
@@ -93,6 +103,12 @@
     <p class="muted">Ссылка веб-приложения Apps Script (файл apps-script/studios-export.gs) и секретный ключ из него. Доска сама перечитывает лист «ВНОСИТЬ СЮДА!!!» раз в 5 минут.</p>
     <p id="scSrcStatus" class="muted"></p>
     <div class="form"><input id="scUrl" placeholder="https://script.google.com/macros/s/…/exec"><input id="scKey" placeholder="Секретный ключ" type="password"><button id="scSrcSave">Сохранить</button></div>
+    <h2>ДХ: календарь ФХМ</h2>
+    <p class="muted" id="fhmConfigStatus" role="status"></p>
+    <form id="fhmConfigForm" class="form">
+      <input id="fhmKey" type="password" autocomplete="off" placeholder="API-ключ ФХМ" aria-label="API-ключ ФХМ" required maxlength="256">
+      <button type="submit">Подключить</button>
+    </form>
     <p id="adminMsg"></p>
   </section>
 </main>
@@ -106,10 +122,11 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="config.js"></script>
-<script src="demo.js"></script>
+<script src="demo.js?v=fhm-calendar"></script>
 <script src="studios-core.js?v=vr-names"></script>
-<script src="app.js"></script>
+<script src="app.js?v=fhm-calendar"></script>
 <script src="studios.js?v=vr-names"></script>
+<script src="fhm.js?v=fhm-calendar"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </body>
 </html>

@@ -76,6 +76,7 @@
 
   // ---------- вход
   function logout() {
+    window.FhmCalendar?.clear();
     S.token = null; S.user = null; try { sessionStorage.removeItem('bms_token'); } catch (e) { /* ok */ }
     $('top').hidden = true; document.querySelectorAll('.view').forEach(v => { v.hidden = true; }); $('login').hidden = false;
   }
@@ -118,7 +119,7 @@
   function showTab(t) {
     S.tab = t;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    ['board', 'studios', 'rates', 'admin'].forEach(k => { $('view-' + k).hidden = k !== t; });
+    document.querySelectorAll('main > .view').forEach(view => { view.hidden = view.id !== 'view-' + t; });
     $('rangeBox').hidden = t === 'admin';
     reload();
   }
@@ -133,10 +134,11 @@
         await loadBoard(false, refreshNow); refreshNow = false;
       }
       if (S.tab === 'studios') await window.Studios.load();
+      if (S.tab === 'fhm') await window.FhmCalendar.load();
       if (S.tab === 'rates') { if (!S.rates) $('ratesOut').replaceChildren(h('p', { class: 'muted' }, 'Ищу назначения без ставки…')); const m = S.month, d = await api('/api/rates/missing', { query: range() }); if (m === S.month) { S.rates = d; renderRates(); } }
     } catch (e) {
       banner(e.message);
-      if (e.code === 'bms_login' && S.user.role === 'admin') showTab('admin');
+      if (e.code === 'bms_login' && S.user?.role === 'admin') showTab('admin');
     } finally { $('reload').disabled = false; $('reload').textContent = 'Обновить'; }
   }
 
@@ -1006,6 +1008,7 @@
   }
   async function loadAdmin() {
     loadUsers().catch(e => toast(e.message, true));
+    window.FhmCalendar?.loadConfig();
     const s = await api('/api/admin/bms/status');
     api('/api/studios/source').then(r => { $('scSrcStatus').textContent = r.configured ? 'Подключено: ' + r.url : 'Не подключено'; }).catch(() => {});
     $('bmsStatus').textContent = s.loggedIn ? `Сессия активна (${s.phone}, вошёл ${s.loginBy}, ${String(s.loginAt).slice(0, 16).replace('T', ' ')})` : 'Сессия BMS не активна — войдите.';

@@ -8,6 +8,7 @@ import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
+import { FhmError, loadFhmCalendar, verifyFhmKey } from './fhm.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
@@ -39,8 +40,12 @@ const json = (data, status, cors) =>
 
 function checkRange(from, to) {
   if (!ISO.test(from || '') || !ISO.test(to || '')) throw new HttpError(400, 'Нужны даты from и to в формате ГГГГ-ММ-ДД');
+  const start = new Date(from), end = new Date(to);
+  if (isNaN(start) || isNaN(end) || start.toISOString().slice(0, 10) !== from || end.toISOString().slice(0, 10) !== to) {
+    throw new HttpError(400, 'Некорректная дата');
+  }
   if (from > to) throw new HttpError(400, 'Дата «с» позже даты «по»');
-  if (dateRange(from, to).length > MAX_RANGE_DAYS) throw new HttpError(400, `Период не больше ${MAX_RANGE_DAYS} дней`);
+  if ((end - start) / 86400000 >= MAX_RANGE_DAYS) throw new HttpError(400, `Период не больше ${MAX_RANGE_DAYS} дней`);
 }
 
 async function body(req) {
@@ -201,6 +206,32 @@ async function route(req, env, url, ctx) {
     need('admin');
     const { phone, code } = await body(req);
     return sessionStub(env).login(normalizePhone(phone), String(code || '').trim(), user.email);
+  }
+
+  if (path === '/api/admin/fhm' && ['GET', 'POST'].includes(req.method)) {
+    need('admin');
+    const stub = sessionStub(env);
+    if (req.method === 'GET') return { configured: !!(await stub.fhmConfig()) };
+    const data = await body(req);
+    const key = typeof data?.key === 'string' ? data.key.trim() : '';
+    if (key.length > 256 || !/^[\w-]+\.[\w-]+$/.test(key)) throw new HttpError(400, 'Введите ключ ФХМ в формате prefix.secret');
+    try {
+      await verifyFhmKey(key);
+    } catch (e) {
+      if (e instanceof FhmError && [401, 403].includes(e.status)) throw new HttpError(400, e.message);
+      throw e;
+    }
+    await stub.fhmConfigSet({ key, revision: crypto.randomUUID() });
+    return { configured: true };
+  }
+
+  if (path === '/api/fhm/calendar' && req.method === 'GET') {
+    need('viewer');
+    const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+    checkRange(from, to);
+    const config = await sessionStub(env).fhmConfig();
+    if (!config) throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', { code: 'fhm_not_configured' });
+    return cached(`fhm|${config.revision}|${from}|${to}`, 60_000, () => loadFhmCalendar(config.key, from, to));
   }
 
   const client = makeClient(env);
@@ -534,6 +565,7 @@ export default {
     try {
       return json(await route(req, env, url, ctx), 200, cors);
     } catch (e) {
+      if (e instanceof FhmError) return json({ error: e.message }, e.status === 429 ? 429 : 502, cors);
       if (e instanceof HttpError) return json({ error: e.message, ...(e.extra || {}) }, e.status, cors);
       const msg = String(e && e.message || e);
       if (msg.includes(LOGIN_REQUIRED)) {

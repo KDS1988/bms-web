@@ -249,3 +249,8 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .sc-pickrow { text-align: left; padding: 6px 8px; cursor: pointer; } .sc-pickrow.on { outline: 2px solid var(--acc); }
 .sc-acctext { cursor: help; text-decoration: underline dotted; }
 .sc-diag { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+
+.fhm-table{max-height:72vh}
+.fhm-table th,.fhm-table td{padding:8px 12px}
+.fhm-table td:first-child,.fhm-table td:last-child{white-space:nowrap}
+.fhm-day th{background:var(--bg);color:var(--txt)}
