@@ -8,7 +8,7 @@ import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
-import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from './fhm.js';
+import { FhmError, loadFhmCalendar, matchFhmBmsIds, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from './fhm.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasSection, parseUserAccess } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
@@ -149,6 +149,11 @@ function studioBoardView({ days, stale, generatedAt }) {
   };
 }
 
+function fhmMatches(config, from, to) {
+  return cached(`fhm-matches|${config.revision}|${from}|${to}`, 60_000,
+    () => loadFhmCalendar(config.key, from, to));
+}
+
 async function route(req, env, url, ctx) {
   const path = url.pathname;
 
@@ -248,7 +253,7 @@ async function route(req, env, url, ctx) {
     if (!config) throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', { code: 'fhm_not_configured' });
     const [calendar, crews] = await Promise.all([
       cached(`fhm|${config.revision}|${from}|${to}`, 60_000,
-        async () => withCalendarAddresses(await loadFhmCalendar(config.key, from, to),
+        async () => withCalendarAddresses(await fhmMatches(config, from, to),
           venues => stub.fhmVenueAddresses(venues))),
       schedule || hasSection(access, 'fhm-schedule') ? stub.fhmCrews(dateRange(from, to)) : {},
     ]);
@@ -258,6 +263,23 @@ async function route(req, env, url, ctx) {
       return { matches, crews };
     }
     return { ...calendar, crews };
+  }
+
+  if (path === '/api/fhm/bms-ids' && req.method === 'GET') {
+    need('fhm-calendar');
+    const from = url.searchParams.get('from'), to = url.searchParams.get('to');
+    checkRange(from, to);
+    const config = await sessionStub(env).fhmConfig();
+    if (!config) return { ids: {}, available: false };
+    try {
+      const [calendar, bmsItems] = await Promise.all([
+        fhmMatches(config, from, to),
+        cached(`fhm-bms|${from}|${to}`, 60_000, () => fetchAssignments(makeClient(env), from, to)),
+      ]);
+      return { ids: matchFhmBmsIds(calendar.matches, bmsItems), available: true };
+    } catch {
+      return { ids: {}, available: false };
+    }
   }
 
   if (path === '/api/fhm/crew' && req.method === 'POST') {

@@ -255,7 +255,7 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .fhm-day-toggle{font-weight:650;white-space:nowrap}
 .fhm-day-toggle span{color:var(--acc)}
 .fhm-day>.fhm-day-toggle{width:100%;text-align:left;background:var(--panel);margin-bottom:3px}
-.fhm-table table{min-width:620px}
+.fhm-table table{min-width:1050px}
 .fhm-table th,.fhm-table td{padding:7px 10px}
 .fhm-table td:first-child,.fhm-table td:last-child{white-space:nowrap}
 

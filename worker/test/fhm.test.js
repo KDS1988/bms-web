@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FhmError, calendarVenueAddress, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from '../src/fhm.js';
+import { FhmError, calendarTeamName, calendarVenueAddress, loadFhmCalendar, matchFhmBmsIds, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from '../src/fhm.js';
 
 const from = '2026-11-01', to = '2026-11-30';
 const page = (data, nextCursor) => Response.json({ data, meta: { nextCursor } });
@@ -89,4 +89,30 @@ test('ДХ: берёт опубликованный адрес совпадаю�
     return { 3: calendarVenueAddress(html, 'Арена') };
   });
   assert.deepEqual(matches.map(row => row.location), ['Москва, Ледовая ул., 12', 'Москва, Ледовая ул., 12', 'Тверь']);
+});
+
+
+test('календарь ДХ: удаляет только год рождения на конце названия команды', () => {
+  assert.equal(calendarTeamName({ fullName: 'Локомотив-2004 2009', year: 2009 }), 'Локомотив-2004');
+  assert.equal(calendarTeamName({ fullName: 'Локомотив 2004', year: 2004 }), 'Локомотив 2004');
+  assert.equal(calendarTeamName({ fullName: 'Спартак 2017 г.р.', year: 2017 }), 'Спартак');
+  assert.equal(calendarTeamName({ fullName: 'Динамо (2017)', year: 2017 }), 'Динамо');
+  assert.equal(calendarTeamName({ fullName: 'Клуб 1998', year: 1998, club: { fullName: 'Клуб 1998' } }), 'Клуб 1998');
+  assert.equal(calendarTeamName({ fullName: 'Клуб 2010', year: 2015 }), 'Клуб 2010');
+});
+
+test('календарь ДХ: связывает с ID мероприятия БМС по дате, времени и обеим командам', () => {
+  const row = { id: 1, date: from, time: '09:30', home: 'Локомотив-2004', away: 'Динамо', homeYear: 2009, awayYear: 2009 };
+  const event = {
+    id: 406, date: from, start_time: '9:30:00', league: { short_name: 'ФХМ' },
+    home_team: { name: 'Локомотив - 2004 2009' }, away_team: { name: 'Динамо 2009' },
+  };
+  assert.deepEqual(matchFhmBmsIds([row, { ...row, copy: true }], [
+    { id: 98, event }, { id: 99, event }, { event: { ...event, id: 407, date: to } },
+    { event: { ...event, id: 408, start_time: '09:35:00' } },
+    { event: { ...event, id: 409, away_team: { name: 'Динамо 2016' } } },
+    { event: { ...event, id: 410, league: { short_name: 'КХЛ' } } },
+  ]), { 1: 406 });
+  assert.deepEqual(matchFhmBmsIds([row], [{ event }, { event: { ...event, id: 111 } }]), {});
+  assert.deepEqual(matchFhmBmsIds([row, { ...row, id: 2 }], [{ event }]), {});
 });

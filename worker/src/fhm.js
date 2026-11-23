@@ -44,6 +44,56 @@ export async function verifyFhmKey(key) {
   await fetchPage(key, today, today, { limit: 1, signal: AbortSignal.timeout(8000) });
 }
 
+const teamKey = name => String(name || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]/gu, '');
+
+export function calendarTeamName(team) {
+  const name = String(team?.fullName || team?.shortName || '').trim();
+  const year = Number(team?.year);
+  const key = teamKey(name);
+  if (!Number.isInteger(year) || year < 1900 || year > 2200 ||
+      key === 'локомотив2004' || [team?.club?.fullName, team?.club?.shortName].some(club => name && key === teamKey(club))) return name;
+  return name.replace(new RegExp(`\\s+(?:\\(${year}\\)|${year}(?:\\s*г\\.?\\s*р\\.?)?)$`, 'iu'), '').trimEnd();
+}
+
+function isFhmLeague(league) {
+  return [league?.short_name, league?.name, league?.full_name].some(name =>
+    /(?:^|[^а-яё])фхм(?:$|[^а-яё])|федерация хоккея москвы/iu.test(String(name || '')));
+}
+
+export function matchFhmBmsIds(rows, assignmentItems) {
+  const byKickoff = new Map();
+  for (const item of assignmentItems) {
+    const event = item?.event;
+    const id = Number(event?.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || !isFhmLeague(event.league)) continue;
+    const explicit = [event.home_team?.name, event.away_team?.name];
+    const teams = explicit.every(Boolean) ? explicit
+      : String(event.additional_info || event.event_description || '').trim().split(/\s+[-–—]\s+/);
+    const time = /^(\d{1,2}):(\d{2})(?::|$)/.exec(event.start_time || '');
+    const [home, away] = teams;
+    if (teams.length !== 2 || !home || !away || !event.date || !time) continue;
+    const slot = `${event.date}T${time[1].padStart(2, '0')}:${time[2]}`;
+    if (!byKickoff.has(slot)) byKickoff.set(slot, new Map());
+    byKickoff.get(slot).set(id, { home, away });
+  }
+  const candidates = new Map(), uses = new Map();
+  const sameTeam = (label, birthYear, bmsLabel) => {
+    const key = teamKey(label);
+    return key && (key === teamKey(bmsLabel) || key === teamKey(calendarTeamName({ fullName: bmsLabel, year: birthYear })));
+  };
+  for (const row of rows) {
+    if (row.copy || !row.date || !row.time) continue;
+    const events = byKickoff.get(row.date + 'T' + row.time);
+    if (!events) continue;
+    const ids = [...events].filter(([, event]) =>
+      sameTeam(row.home, row.homeYear, event.home) && sameTeam(row.away, row.awayYear, event.away)).map(([id]) => id);
+    if (ids.length) candidates.set(row.id, ids);
+    for (const id of ids) uses.set(id, (uses.get(id) || 0) + 1);
+  }
+  return Object.fromEntries([...candidates].flatMap(([id, matches]) =>
+    matches.length === 1 && uses.get(matches[0]) === 1 ? [[id, matches[0]]] : []));
+}
+
 export async function loadFhmCalendar(key, from, to) {
   const matches = new Map();
   const seen = new Set();
@@ -62,7 +112,8 @@ export async function loadFhmCalendar(key, from, to) {
       const row = {
         duration: short ? 105 : 135,
         id: match.id, date, time: match.startsAt?.slice(11, 16) || '', year,
-        home: match.homeTeam?.fullName || '', away: match.awayTeam?.fullName || '',
+        home: calendarTeamName(match.homeTeam), away: calendarTeamName(match.awayTeam),
+        homeYear: homeYear || null, awayYear: awayYear || null,
         group, tour: match.tour?.name || '', venue,
         venueId: match.venue?.id || null, location: match.venue?.address || '', status: match.status,
       };

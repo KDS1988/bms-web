@@ -6,13 +6,15 @@
     scheduled: ['Запланирован', ''], live: ['Идёт', 'appointed'], finished: ['Завершён', ''],
     postponed: ['Перенесён', 'pending'], cancelled: ['Отменён', 'declined'],
   };
-  const HEADERS = ['Время (МСК)', 'Хозяева', 'Гости', 'Арена', 'Группа / тур', 'Статус'];
+  const HEADERS = ['Время', 'Тур', 'Группа', 'Год рождения', 'Матч', 'Арена', 'Адрес', 'Статус', 'ID BMS'];
+  const CALENDAR_WIDTHS = [7, 8, 10, 10, 23, 17, 11, 9, 5];
   const Schedule = window.FhmSchedule;
   const { CREW_FIELDS } = Schedule;
   const SCHEDULE_FIELDS = [['start', 'Начало'], ['finish', 'Конец'], ...CREW_FIELDS];
   const DEFAULT_SORT = { field: 'name', date: '', direction: 1 };
   const collapsed = { calendar: new Set(), schedule: new Set() };
   let calendar = null, period = null, view = 'calendar', crews = {};
+  let bmsIds = {}, bmsStatus = '';
   let request = 0, selectedDay = '', sort = DEFAULT_SORT;
 
   function dayLabel(date) { return date ? fmtDay(date) : 'Дата уточняется'; }
@@ -42,18 +44,24 @@
     return [...days].map(([date, items]) => {
       const rows = collapsed.calendar.has(date) ? null : items.map(match => {
         const [label, cls] = STATUS[match.status] || ['—', ''];
+        const years = match.year || [...new Set([match.homeYear, match.awayYear].filter(Boolean))].join(' / ');
+        const title = match.home || match.away ? (match.home || '—') + ' - ' + (match.away || '—') : '—';
         return h('tr', null,
-          h('td', null, match.time || '—'),
-          h('td', null, match.home || '—'), h('td', null, match.away || '—'),
+          h('td', { title: 'Московское время' }, match.time || '—'),
+          h('td', null, match.tour || '—'),
+          h('td', null, match.group || '—'),
+          h('td', null, years || '—'),
+          h('td', null, title),
           h('td', null, match.venue || '—'),
-          h('td', null, [match.group, match.tour].filter(Boolean).join(' · ') || '—'),
-          h('td', null, h('span', { class: 'chip ' + cls }, label)));
+          h('td', null, match.location || '—'),
+          h('td', null, h('span', { class: 'chip ' + cls }, label)),
+          h('td', null, bmsIds[match.id] || '—'));
       });
       return h('section', { class: 'fhm-day' },
         dayButton(date, `${dayLabel(date)} · матчей: ${items.length}`),
         rows ? h('div', { class: 'tablewrap fhm-table' },
           h('table', { 'aria-label': 'Матчи ФХМ · ' + dayLabel(date) },
-            h('colgroup', null, ['13%', '20%', '20%', '24%', '13%', '10%'].map(width => h('col', { style: 'width:' + width }))),
+            h('colgroup', null, CALENDAR_WIDTHS.map(width => h('col', { style: 'width:' + width + '%' }))),
             h('thead', null, h('tr', null, HEADERS.map(title => h('th', { scope: 'col' }, title)))),
             h('tbody', null, rows))) : null);
     });
@@ -201,7 +209,7 @@
   function render() {
     if (!calendar) return;
     const query = $('fhmSearch').value.trim().toLocaleLowerCase('ru');
-    const matches = query ? calendar.filter(match => [match.home, match.away, match.venue, match.group, match.tour, match.location, match.year]
+    const matches = query ? calendar.filter(match => [match.home, match.away, match.venue, match.group, match.tour, match.location, match.year, bmsIds[match.id]]
       .some(value => String(value ?? '').toLocaleLowerCase('ru').includes(query))) : calendar;
     const out = $('fhmOut');
     const schedule = view === 'schedule' ? Schedule.buildSchedule(matches, period) : null;
@@ -226,15 +234,31 @@
       if (old && wrap) { wrap.scrollLeft = old.scrollLeft; wrap.scrollTop = old.scrollTop; }
       return;
     }
-    $('fhmStatus').textContent = query ? `Матчей: ${matches.length} из ${calendar.length}` : `Матчей: ${matches.length}`;
+    const count = query ? `Матчей: ${matches.length} из ${calendar.length}` : `Матчей: ${matches.length}`;
+    $('fhmStatus').textContent = bmsStatus ? count + ' · ' + bmsStatus : count;
     out.replaceChildren(...(matches.length ? calendarContent(matches) : [
       h('p', { class: 'muted' }, calendar.length ? 'По запросу матчей нет.' : 'В выбранном месяце матчей нет.'),
     ]));
   }
 
+  async function loadBmsIds(current, query) {
+    try {
+      const data = await api('/api/fhm/bms-ids', { query });
+      if (current !== request) return;
+      bmsIds = data.ids || {};
+      bmsStatus = data.available ? '' : 'Сверка ID БМС недоступна';
+    } catch {
+      if (current !== request) return;
+      bmsStatus = 'Сверка ID БМС недоступна';
+    }
+    if (S.tab === 'fhm' && view === 'calendar') render();
+  }
+
   async function load() {
     const current = ++request;
     calendar = null;
+    bmsIds = {};
+    bmsStatus = '';
     period = range();
     $('fhmCollapse').disabled = $('fhmExpand').disabled = true;
     $('fhmStatus').textContent = 'Загружаю календарь…';
@@ -245,6 +269,10 @@
       if (current !== request || S.tab !== 'fhm') return;
       calendar = data.matches;
       crews = data.crews || {};
+      if (calendar.length && canView('fhm-calendar')) {
+        bmsStatus = 'Сверяю ID БМС…';
+        void loadBmsIds(current, period);
+      }
       render();
     } catch (e) {
       if (current !== request || S.tab !== 'fhm') return;
@@ -299,6 +327,8 @@
     clear() {
       request++;
       calendar = null;
+      bmsIds = {};
+      bmsStatus = '';
       period = null;
       crews = {};
       selectedDay = '';

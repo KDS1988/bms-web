@@ -47,6 +47,7 @@
   const fhmCrews = {};
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
+    if (path === '/api/fhm/bms-ids') return { ids: { 901: 49801 }, available: true };
     if (path === '/api/admin/fhm') return { configured: true };
     if (path === '/api/fhm/crew') {
       const { date, arena, field, value } = opts.body;
@@ -56,7 +57,7 @@
       return { value: crew[field] };
     }
     if (path === '/api/fhm/calendar' || path === '/api/fhm/schedule') {
-      const first = { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', year: 2017, duration: 105,
+      const first = { id: 901, date: q.from, time: '10:30', home: 'Локомотив-2004', away: 'Динамо', year: 2017, duration: 105,
         group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'scheduled' };
       return { crews: fhmCrews, matches: [
         first, { ...first, copy: true, venue: first.venue + '_2' },
