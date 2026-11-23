@@ -250,7 +250,49 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .sc-acctext { cursor: help; text-decoration: underline dotted; }
 .sc-diag { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
 
-.fhm-table{max-height:72vh}
-.fhm-table th,.fhm-table td{padding:8px 12px}
+.fhm-tabs{display:flex;gap:4px;margin-bottom:10px}
+.fhm-day{margin-bottom:10px}
+.fhm-day-toggle{font-weight:650;white-space:nowrap}
+.fhm-day-toggle span{color:var(--acc)}
+.fhm-day>.fhm-day-toggle{width:100%;text-align:left;background:var(--panel);margin-bottom:3px}
+.fhm-table table{min-width:620px}
+.fhm-table th,.fhm-table td{padding:7px 10px}
 .fhm-table td:first-child,.fhm-table td:last-child{white-space:nowrap}
-.fhm-day th{background:var(--bg);color:var(--txt)}
+
+.fhm-schedule-wrap{max-height:72vh}
+.fhm-schedule{
+  --fhm-arena:230px;--fhm-location:142px;--fhm-total:108px;--fhm-count:92px;--fhm-time:70px;--fhm-crew:112px;
+  --fhm-head-height:76px;--fhm-heading:#ffab33;--fhm-subheading:#ffe4bd;--fhm-heading-text:#242019;
+  --fhm-fixed:#ceddf4;--fhm-fixed-text:#172638;--fhm-off:#e95154;
+  border-collapse:separate;border-spacing:0;table-layout:fixed;
+  width:calc(var(--fhm-arena) + var(--fhm-location) + var(--fhm-total) + var(--fhm-count) * var(--fhm-days)
+    + (2 * var(--fhm-time) + 4 * var(--fhm-crew)) * var(--fhm-expanded))
+}
+:root[data-theme=dark] .fhm-schedule{--fhm-fixed:#253651;--fhm-fixed-text:#e0eaff;--fhm-off:#842d35}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]) .fhm-schedule{--fhm-fixed:#253651;--fhm-fixed-text:#e0eaff;--fhm-off:#842d35}}
+.fhm-col-arena{width:var(--fhm-arena)}
+.fhm-col-location{width:var(--fhm-location)}
+.fhm-col-total{width:var(--fhm-total)}
+.fhm-col-count{width:var(--fhm-count)}
+.fhm-col-time{width:var(--fhm-time)}
+.fhm-col-crew{width:var(--fhm-crew)}
+.fhm-schedule td,.fhm-schedule th{padding:4px 6px;border-right:1px solid var(--line);text-align:center;vertical-align:middle}
+.fhm-schedule tbody td,.fhm-schedule tbody th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fhm-schedule .fhm-pin{position:sticky;background:var(--fhm-fixed);color:var(--fhm-fixed-text);z-index:2}
+.fhm-schedule .fhm-pin-arena{left:0;text-align:left}
+.fhm-pin-location{left:var(--fhm-arena)}
+.fhm-pin-total{left:calc(var(--fhm-arena) + var(--fhm-location));box-shadow:2px 0 var(--line)}
+.fhm-schedule-wrap thead th{box-shadow:none}
+.fhm-schedule-wrap thead th.fhm-pin{z-index:8;background:var(--fhm-subheading);color:var(--fhm-heading-text)}
+.fhm-schedule-days th{height:var(--fhm-head-height);background:var(--fhm-heading);color:var(--fhm-heading-text)}
+.fhm-schedule-days th.fhm-day-start{text-align:left;padding-left:9px}
+.fhm-schedule-days .fhm-day-toggle{border:0;background:transparent;color:inherit;padding:0;font-size:13px}
+.fhm-schedule-days .fhm-day-toggle span{color:inherit}
+.fhm-schedule-days small,.fhm-weekday{display:block;white-space:normal}
+.fhm-schedule-fields th{top:var(--fhm-head-height);background:var(--fhm-subheading);color:var(--fhm-heading-text)}
+.fhm-schedule .fhm-day-start{border-left:2px solid var(--line)}
+.fhm-schedule .fhm-empty{background:var(--fhm-off)}
+@media(max-width:720px){
+  .fhm-schedule{--fhm-arena:120px;--fhm-location:81px;--fhm-total:64px}
+  .fhm-schedule thead .fhm-pin{white-space:normal}
+}

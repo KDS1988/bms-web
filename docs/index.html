@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>BMS · Назначения</title>
 <script>try{var t=localStorage.getItem("bms_theme");if(t)document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
-<link rel="stylesheet" href="style.css?v=fhm-calendar">
+<link rel="stylesheet" href="style.css?v=fhm-schedule">
 </head>
 <body>
 <header id="top" hidden>
@@ -69,9 +69,14 @@
   </section>
 
   <section id="view-fhm" class="view" hidden>
-    <h2>Календарь матчей ФХМ</h2>
+    <nav class="fhm-tabs" aria-label="Представления ДХ">
+      <button type="button" data-fhm-view="calendar" class="on" aria-pressed="true">Календарь</button>
+      <button type="button" data-fhm-view="schedule" aria-pressed="false">Расписание</button>
+    </nav>
     <div class="filters">
       <input id="fhmSearch" type="search" placeholder="Команда, арена или группа" aria-label="Поиск матчей ФХМ">
+      <button id="fhmCollapse" type="button" disabled>Свернуть все дни</button>
+      <button id="fhmExpand" type="button" disabled>Развернуть все дни</button>
       <span class="muted" id="fhmStatus" role="status"></span>
     </div>
     <div id="fhmOut"></div>
@@ -122,11 +127,12 @@
 <div id="toast" class="toast" hidden></div>
 
 <script src="config.js"></script>
-<script src="demo.js?v=fhm-calendar"></script>
+<script src="demo.js?v=fhm-schedule"></script>
 <script src="studios-core.js?v=vr-names"></script>
-<script src="app.js?v=fhm-calendar"></script>
+<script src="app.js?v=fhm-schedule"></script>
 <script src="studios.js?v=vr-names"></script>
-<script src="fhm.js?v=fhm-calendar"></script>
+<script src="fhm-schedule.js?v=fhm-schedule"></script>
+<script src="fhm.js?v=fhm-schedule"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </body>
 </html>

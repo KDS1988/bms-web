@@ -51,17 +51,27 @@ export async function loadFhmCalendar(key, from, to) {
     const result = await fetchPage(key, from, to, { limit: 100, cursor, signal });
     for (const match of result.data) {
       const date = match.startsAt?.slice(0, 10) || '';
-      matches.set(match.id, {
-        id: match.id, date, time: match.startsAt?.slice(11, 16) || '',
+      const homeYear = match.homeTeam?.year, awayYear = match.awayTeam?.year;
+      const year = homeYear && awayYear && homeYear !== awayYear ? null : (homeYear || awayYear || null);
+      const venue = match.venue?.name || '';
+      const group = match.group?.name || '';
+      const row = {
+        id: match.id, date, time: match.startsAt?.slice(11, 16) || '', year,
         home: match.homeTeam?.fullName || '', away: match.awayTeam?.fullName || '',
-        group: match.group?.name || '', tour: match.tour?.name || '',
-        venue: match.venue?.name || '', status: match.status,
-      });
+        group, tour: match.tour?.name || '', venue,
+        venueId: match.venue?.id || null, location: match.venue?.address || '', status: match.status,
+      };
+      matches.set(match.id, row);
     }
     cursor = result.meta.nextCursor;
     if (cursor === null) {
       const order = match => match.date ? match.date + match.time : '9999';
-      return { matches: [...matches.values()].sort((a, b) => order(a).localeCompare(order(b))) };
+      const rows = [...matches.values()].sort((a, b) => order(a).localeCompare(order(b)));
+      return { matches: rows.flatMap(row => {
+        const groupA = /^(?:группа\s+)?[аa]$/iu.test(row.group.replace(/[«»“”"]/g, '').trim());
+        if (!row.venue || !(row.year === 2017 || (row.year === 2016 && row.group && !groupA))) return [row];
+        return [row, { ...row, venue: row.venue + '_2', copy: true }];
+      }) };
     }
     if (seen.has(cursor)) break;
     seen.add(cursor);

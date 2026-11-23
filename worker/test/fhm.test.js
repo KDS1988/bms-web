@@ -44,3 +44,22 @@ test('ФХМ: перенаправление отклоняется, ключ н
   await assert.rejects(verifyFhmKey('prefix.test'), /перенаправил запрос/);
   assert.equal(fetch.mock.callCount(), 1);
 });
+
+test('ФХМ: копии на арене _2 только для 2017 и для 2016 вне группы А', async t => {
+  const row = (id, year, group) => ({
+    ...match(id, '2026-11-03T11:00:00+03:00'),
+    group: group && { name: group },
+    homeTeam: { fullName: 'Север', year },
+    awayTeam: { fullName: 'Юг', year },
+    venue: { id: 321, name: 'Арена', address: 'Подольск' },
+  });
+  t.mock.method(globalThis, 'fetch', async () => page([
+    row(1, 2017, 'Группа А'), row(2, 2016, 'Группа A'), row(3, 2016, 'Группа Б'),
+    row(4, 2015, 'Группа Б'), row(5, 2016, null), row(6, 2016, 'Группа «А»'),
+    { ...row(7, 2017, 'Группа А'), venue: null },
+  ], null));
+  const { matches } = await loadFhmCalendar('prefix.test', from, to);
+  assert.deepEqual(matches.filter(row => row.copy).map(({ id, venue, venueId, location }) =>
+    [id, venue, venueId, location]), [[1, 'Арена_2', 321, 'Подольск'], [3, 'Арена_2', 321, 'Подольск']]);
+  assert.deepEqual(matches.filter(row => !row.copy).map(row => row.id), [1, 2, 3, 4, 5, 6, 7]);
+});

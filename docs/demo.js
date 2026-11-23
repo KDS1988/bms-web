@@ -48,9 +48,14 @@
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/admin/fhm') return { configured: true };
     if (path === '/api/fhm/calendar') {
+      const first = { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', year: 2017,
+        group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'scheduled' };
       return { matches: [
-        { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', status: 'scheduled' },
-        { id: 902, date: q.from, time: '13:00', home: 'Команда Запад', away: 'Команда Юг', group: 'Группа Б', tour: '12 тур', venue: 'Ледовый дворец', status: 'finished' },
+        first, { ...first, copy: true, venue: first.venue + '_2' },
+        { id: 902, date: q.from, time: '13:00', home: 'Команда Запад', away: 'Команда Юг', year: 2015,
+          group: 'Группа Б', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'finished' },
+        { id: 903, date: iso(add(q.from, 2)), time: '15:00', home: 'Команда Восток', away: 'Команда Запад', year: 2016,
+          group: 'Группа А', tour: '13 тур', venue: 'Ледовая арена', venueId: 2, location: 'Подольск', status: 'scheduled' },
       ] };
     }
     if (path === '/api/board') {
