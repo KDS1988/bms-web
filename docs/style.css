@@ -296,3 +296,7 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
   .fhm-schedule{--fhm-arena:120px;--fhm-location:81px;--fhm-total:64px}
   .fhm-schedule thead .fhm-pin{white-space:normal}
 }
+
+.fhm-schedule .fhm-crew-cell{padding:0}
+.fhm-crew-cell input{display:block;width:100%;padding:4px 6px;border:0;border-radius:0;background:transparent;text-align:center}
+.fhm-crew-cell input:focus{outline:2px solid var(--acc);outline-offset:-2px}

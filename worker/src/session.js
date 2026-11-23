@@ -218,6 +218,25 @@ export class BmsSession extends DurableObject {
 
   async fhmConfigSet(config) { await this.ctx.storage.put('fhmConfig', config); }
 
+  async fhmCrews(dates) {
+    const days = await this.ctx.storage.get(dates.map(date => 'fhm-crew:' + date));
+    return Object.fromEntries([...days].map(([key, crews]) => [key.slice('fhm-crew:'.length), crews]));
+  }
+
+  async fhmCrewSet({ date, arena, field, value }) {
+    const key = 'fhm-crew:' + date;
+    await this.ctx.storage.transaction(async txn => {
+      const arenas = (await txn.get(key)) || {};
+      const crew = arenas[arena] || {};
+      if (value) crew[field] = value;
+      else delete crew[field];
+      if (Object.keys(crew).length) arenas[arena] = crew;
+      else delete arenas[arena];
+      if (Object.keys(arenas).length) await txn.put(key, arenas);
+      else await txn.delete(key);
+    });
+  }
+
   // ---- СТУДИИ: матчи по дням (ключ «sm:ГГГГ-ММ-ДД»), чтобы не упираться в лимит значения
   async studiosGet(from, to) {
     const keys = [];

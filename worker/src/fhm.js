@@ -55,7 +55,10 @@ export async function loadFhmCalendar(key, from, to) {
       const year = homeYear && awayYear && homeYear !== awayYear ? null : (homeYear || awayYear || null);
       const venue = match.venue?.name || '';
       const group = match.group?.name || '';
+      const groupA = /^(?:группа\s+)?[аa]$/iu.test(group.replace(/[«»“”"]/g, '').trim());
+      const short = year === 2017 || (year === 2016 && group && !groupA);
       const row = {
+        duration: short ? 105 : 135,
         id: match.id, date, time: match.startsAt?.slice(11, 16) || '', year,
         home: match.homeTeam?.fullName || '', away: match.awayTeam?.fullName || '',
         group, tour: match.tour?.name || '', venue,
@@ -67,14 +70,20 @@ export async function loadFhmCalendar(key, from, to) {
     if (cursor === null) {
       const order = match => match.date ? match.date + match.time : '9999';
       const rows = [...matches.values()].sort((a, b) => order(a).localeCompare(order(b)));
-      return { matches: rows.flatMap(row => {
-        const groupA = /^(?:группа\s+)?[аa]$/iu.test(row.group.replace(/[«»“”"]/g, '').trim());
-        if (!row.venue || !(row.year === 2017 || (row.year === 2016 && row.group && !groupA))) return [row];
-        return [row, { ...row, venue: row.venue + '_2', copy: true }];
-      }) };
+      return { matches: rows.flatMap(row => row.venue && row.duration === 105
+        ? [row, { ...row, venue: row.venue + '_2', copy: true }]
+        : [row]) };
     }
     if (seen.has(cursor)) break;
     seen.add(cursor);
   }
   throw new FhmError('ФХМ не вернула полный календарь за этот период.');
+}
+
+export function parseFhmCrewEdit(data) {
+  const { date, arena, field } = data || {};
+  if (typeof date !== 'string' || typeof arena !== 'string' || !/^[1-9]\d{0,14}(?::2)?$/.test(arena) ||
+      !['director', 'operator', 'stat', 'commentator'].includes(field) || typeof data.value !== 'string') return null;
+  const value = data.value.trim().replace(/\s+/g, ' ');
+  return value.length <= 80 ? { date, arena, field, value } : null;
 }

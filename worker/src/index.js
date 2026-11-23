@@ -8,7 +8,7 @@ import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
-import { FhmError, loadFhmCalendar, verifyFhmKey } from './fhm.js';
+import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey } from './fhm.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
@@ -229,9 +229,23 @@ async function route(req, env, url, ctx) {
     need('viewer');
     const from = url.searchParams.get('from'), to = url.searchParams.get('to');
     checkRange(from, to);
-    const config = await sessionStub(env).fhmConfig();
+    const stub = sessionStub(env);
+    const config = await stub.fhmConfig();
     if (!config) throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', { code: 'fhm_not_configured' });
-    return cached(`fhm|${config.revision}|${from}|${to}`, 60_000, () => loadFhmCalendar(config.key, from, to));
+    const [calendar, crews] = await Promise.all([
+      cached(`fhm|${config.revision}|${from}|${to}`, 60_000, () => loadFhmCalendar(config.key, from, to)),
+      stub.fhmCrews(dateRange(from, to)),
+    ]);
+    return { ...calendar, crews };
+  }
+
+  if (path === '/api/fhm/crew' && req.method === 'POST') {
+    need('editor');
+    const edit = parseFhmCrewEdit(await body(req));
+    if (!edit) throw new HttpError(400, 'Некорректные данные бригады');
+    checkRange(edit.date, edit.date);
+    await sessionStub(env).fhmCrewSet(edit);
+    return { value: edit.value };
   }
 
   const client = makeClient(env);

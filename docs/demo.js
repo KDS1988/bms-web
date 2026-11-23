@@ -44,17 +44,25 @@
   }
 
   let dv = 1; const dstore = {}; const ostore = {}; const plans = []; let pseq = 0; const tstore = {}; const smatches = []; let sseq = 0;
+  const fhmCrews = {};
   window.DEMO = function (path, opts, q) {
     if (path === '/api/me') return { user: { email: 'demo@example.com', name: 'Демо-пользователь', role: 'admin' } };
     if (path === '/api/admin/fhm') return { configured: true };
+    if (path === '/api/fhm/crew') {
+      const { date, arena, field, value } = opts.body;
+      const day = fhmCrews[date] ||= {};
+      const crew = day[arena] ||= {};
+      crew[field] = value.trim();
+      return { value: crew[field] };
+    }
     if (path === '/api/fhm/calendar') {
-      const first = { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', year: 2017,
+      const first = { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', year: 2017, duration: 105,
         group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'scheduled' };
-      return { matches: [
+      return { crews: fhmCrews, matches: [
         first, { ...first, copy: true, venue: first.venue + '_2' },
-        { id: 902, date: q.from, time: '13:00', home: 'Команда Запад', away: 'Команда Юг', year: 2015,
+        { id: 902, date: q.from, time: '13:00', home: 'Команда Запад', away: 'Команда Юг', year: 2015, duration: 135,
           group: 'Группа Б', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'finished' },
-        { id: 903, date: iso(add(q.from, 2)), time: '15:00', home: 'Команда Восток', away: 'Команда Запад', year: 2016,
+        { id: 903, date: iso(add(q.from, 2)), time: '15:00', home: 'Команда Восток', away: 'Команда Запад', year: 2016, duration: 135,
           group: 'Группа А', tour: '13 тур', venue: 'Ледовая арена', venueId: 2, location: 'Подольск', status: 'scheduled' },
       ] };
     }

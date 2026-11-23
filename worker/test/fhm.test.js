@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FhmError, loadFhmCalendar, verifyFhmKey } from '../src/fhm.js';
+import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey } from '../src/fhm.js';
 
 const from = '2026-11-01', to = '2026-11-30';
 const page = (data, nextCursor) => Response.json({ data, meta: { nextCursor } });
@@ -61,5 +61,16 @@ test('ФХМ: копии на арене _2 только для 2017 и для 2
   const { matches } = await loadFhmCalendar('prefix.test', from, to);
   assert.deepEqual(matches.filter(row => row.copy).map(({ id, venue, venueId, location }) =>
     [id, venue, venueId, location]), [[1, 'Арена_2', 321, 'Подольск'], [3, 'Арена_2', 321, 'Подольск']]);
-  assert.deepEqual(matches.filter(row => !row.copy).map(row => row.id), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(matches.filter(row => !row.copy).map(row => [row.id, row.duration]),
+    [[1, 105], [2, 135], [3, 105], [4, 135], [5, 135], [6, 135], [7, 105]]);
+});
+
+
+test('ДХ: запись бригады проверяет идентификатор арены, поле и фамилию', () => {
+  const edit = { date: '2026-11-01', arena: '321:2', field: 'director', value: '  Иванов   Петров  ' };
+  assert.deepEqual(parseFhmCrewEdit(edit), { ...edit, value: 'Иванов Петров' });
+  assert.equal(parseFhmCrewEdit({ ...edit, arena: '__proto__' }), null);
+  assert.equal(parseFhmCrewEdit({ ...edit, field: 'start' }), null);
+  assert.equal(parseFhmCrewEdit({ ...edit, value: 'x'.repeat(81) }), null);
+  assert.equal(parseFhmCrewEdit({ ...edit, value: ' ' }).value, '');
 });

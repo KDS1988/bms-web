@@ -1,15 +1,16 @@
 (function () {
   'use strict';
-  const { h, api, range, fmtDay, S } = window.APP;
+  const { h, api, range, fmtDay, S, canEdit, toast } = window.APP;
   const $ = id => document.getElementById(id);
   const STATUS = {
     scheduled: ['Запланирован', ''], live: ['Идёт', 'appointed'], finished: ['Завершён', ''],
     postponed: ['Перенесён', 'pending'], cancelled: ['Отменён', 'declined'],
   };
   const HEADERS = ['Время (МСК)', 'Хозяева', 'Гости', 'Арена', 'Группа / тур', 'Статус'];
-  const SCHEDULE_FIELDS = ['Начало', 'Конец', 'Реж', 'Опер', 'Стат', 'Коммент'];
+  const CREW_FIELDS = [['director', 'Реж'], ['operator', 'Опер'], ['stat', 'Стат'], ['commentator', 'Коммент']];
+  const SCHEDULE_FIELDS = ['Начало', 'Конец', ...CREW_FIELDS.map(([, label]) => label)];
   const collapsed = { calendar: new Set(), schedule: new Set() };
-  let calendar = null, period = null, view = 'calendar';
+  let calendar = null, period = null, view = 'calendar', crews = {};
   let request = 0;
 
   function dayLabel(date) { return date ? fmtDay(date) : 'Дата уточняется'; }
@@ -57,6 +58,38 @@
   const DATE = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
   const MONTH = new Intl.DateTimeFormat('ru-RU', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
+  async function saveCrew(input, date, arena, field) {
+    const session = S.token, value = input.value;
+    const before = crews[date]?.[arena]?.[field] || '';
+    if (value === before) return;
+    input.disabled = true;
+    try {
+      const result = await api('/api/fhm/crew', { method: 'POST', body: { date, arena, field, value } });
+      if (session === S.token) {
+        input.value = result.value;
+        const day = crews[date] ||= {};
+        const crew = day[arena] ||= {};
+        crew[field] = result.value;
+      }
+    } catch (e) {
+      if (session === S.token) { input.value = before; toast(e.message, true); }
+    } finally {
+      input.disabled = false;
+    }
+  }
+
+  function crewCell(arena, date, [field, label]) {
+    const value = crews[date]?.[arena.key]?.[field] || '';
+    const editable = canEdit() && arena.editable;
+    return h('td', { class: 'fhm-crew-cell', title: value || null }, editable
+      ? h('input', { type: 'text', value, maxlength: 80,
+        'aria-label': `${label} · ${arena.name} · ${DATE.format(new Date(date))}`,
+        onchange: event => saveCrew(event.currentTarget, date, arena.key, field),
+        onkeydown: event => { if (event.key === 'Enter') event.currentTarget.blur(); },
+      })
+      : value);
+  }
+
   function scheduleContent(schedule) {
     const { dates, rows, totals } = schedule;
     if (!rows.length) return h('p', { class: 'muted' }, 'Нет матчей для расписания.');
@@ -93,8 +126,11 @@
             const day = arena.days.get(date);
             const count = h('td', { class: 'fhm-day-start fhm-count' }, day?.count || 0);
             if (closed) return [count];
-            return [count, ...SCHEDULE_FIELDS.map((_, i) =>
-              h('td', { class: day ? null : 'fhm-empty' }, i === 0 ? day?.start || '' : ''))];
+            if (!day) return [count, ...SCHEDULE_FIELDS.map(() => h('td', { class: 'fhm-empty' }))];
+            const end = window.FhmSchedule.endTime(day.finish);
+            return [count, h('td', null, day.start), h('td', {
+              title: day.finish >= 1440 ? 'Следующий день' : null,
+            }, end), ...CREW_FIELDS.map(field => crewCell(arena, date, field))];
           }))))));
   }
 
@@ -149,6 +185,7 @@
       const data = await api('/api/fhm/calendar', { query: period });
       if (current !== request || S.tab !== 'fhm') return;
       calendar = data.matches;
+      crews = data.crews || {};
       render();
     } catch (e) {
       if (current !== request || S.tab !== 'fhm') return;
@@ -202,6 +239,7 @@
       request++;
       calendar = null;
       period = null;
+      crews = {};
       collapsed.calendar.clear();
       collapsed.schedule.clear();
       setView('calendar');
