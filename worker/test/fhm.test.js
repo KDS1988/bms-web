@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey } from '../src/fhm.js';
+import { FhmError, calendarVenueAddress, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from '../src/fhm.js';
 
 const from = '2026-11-01', to = '2026-11-30';
 const page = (data, nextCursor) => Response.json({ data, meta: { nextCursor } });
@@ -73,4 +73,20 @@ test('ДХ: запись бригады проверяет идентифика�
   assert.equal(parseFhmCrewEdit({ ...edit, field: 'start' }), null);
   assert.equal(parseFhmCrewEdit({ ...edit, value: 'x'.repeat(81) }), null);
   assert.equal(parseFhmCrewEdit({ ...edit, value: ' ' }).value, '');
+});
+
+
+test('ДХ: берёт опубликованный адрес совпадающей арены и заполняет строку _2', async () => {
+  const html = `<script type="application/ld+json">{"@type":"Organization","location":{"address":"Чужой адрес"}}</script>
+    <script type="application/ld+json">{"@type":"SportsEvent","location":{"name":"Арена","address":{"addressLocality":"Москва","streetAddress":"Ледовая ул., 12"}}}</script>`;
+  assert.equal(calendarVenueAddress(html, 'Арена'), 'Москва, Ледовая ул., 12');
+  assert.equal(calendarVenueAddress(html, 'Другая арена'), '');
+  const one = { id: 10, venueId: 3, venue: 'Арена', date: from, location: '' };
+  const { matches } = await withCalendarAddresses({ matches: [
+    one, { ...one, venue: 'Арена_2', copy: true }, { ...one, venueId: 2, location: 'Тверь' },
+  ] }, async venues => {
+    assert.deepEqual(venues, [{ venueId: 3, matchId: 10, arena: 'Арена' }]);
+    return { 3: calendarVenueAddress(html, 'Арена') };
+  });
+  assert.deepEqual(matches.map(row => row.location), ['Москва, Ледовая ул., 12', 'Москва, Ледовая ул., 12', 'Тверь']);
 });

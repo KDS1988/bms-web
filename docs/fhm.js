@@ -7,11 +7,13 @@
     postponed: ['Перенесён', 'pending'], cancelled: ['Отменён', 'declined'],
   };
   const HEADERS = ['Время (МСК)', 'Хозяева', 'Гости', 'Арена', 'Группа / тур', 'Статус'];
-  const CREW_FIELDS = [['director', 'Реж'], ['operator', 'Опер'], ['stat', 'Стат'], ['commentator', 'Коммент']];
-  const SCHEDULE_FIELDS = ['Начало', 'Конец', ...CREW_FIELDS.map(([, label]) => label)];
+  const Schedule = window.FhmSchedule;
+  const { CREW_FIELDS } = Schedule;
+  const SCHEDULE_FIELDS = [['start', 'Начало'], ['finish', 'Конец'], ...CREW_FIELDS];
+  const DEFAULT_SORT = { field: 'name', date: '', direction: 1 };
   const collapsed = { calendar: new Set(), schedule: new Set() };
   let calendar = null, period = null, view = 'calendar', crews = {};
-  let request = 0;
+  let request = 0, selectedDay = '', sort = DEFAULT_SORT;
 
   function dayLabel(date) { return date ? fmtDay(date) : 'Дата уточняется'; }
 
@@ -20,7 +22,10 @@
     return h('button', {
       type: 'button', 'aria-expanded': String(!closed), 'data-fhm-day': date,
       class: 'fhm-day-toggle', onclick: () => {
-        if (closed) state.delete(date); else state.add(date);
+        if (closed) {
+          state.delete(date);
+          if (view === 'schedule') selectedDay = date;
+        } else state.add(date);
         render();
         const button = [...$('fhmOut').querySelectorAll('[data-fhm-day]')].find(node => node.dataset.fhmDay === date);
         button?.focus({ preventScroll: true });
@@ -70,6 +75,10 @@
         const day = crews[date] ||= {};
         const crew = day[arena] ||= {};
         crew[field] = result.value;
+        input.parentElement.title = result.value;
+        const hidesCompleted = date === selectedDay && $('fhmScheduleFilter').value === 'incomplete' && Schedule.crewComplete(crew);
+        const affectsSort = sort.date === date && sort.field === field && !document.activeElement?.matches('.fhm-crew-cell input');
+        if (view === 'schedule' && (hidesCompleted || affectsSort)) render();
       }
     } catch (e) {
       if (session === S.token) { input.value = before; toast(e.message, true); }
@@ -90,9 +99,35 @@
       : value);
   }
 
+  function sortHeader(label, field, date = '', attrs = {}) {
+    const active = sort.field === field && sort.date === date;
+    return h('th', { scope: 'col', ...attrs, 'aria-sort': active ? (sort.direction === 1 ? 'ascending' : 'descending') : null },
+      h('button', { class: 'fhm-sort', type: 'button', onclick: event => {
+        sort = { field, date, direction: active ? -sort.direction : (field === 'count' ? -1 : 1) };
+        const buttonIndex = [...$('fhmOut').querySelectorAll('.fhm-sort')].indexOf(event.currentTarget);
+        render();
+        $('fhmOut').querySelectorAll('.fhm-sort')[buttonIndex]?.focus({ preventScroll: true });
+      } }, label, ' ', h('span', { 'aria-hidden': 'true' }, active ? (sort.direction === 1 ? '↑' : '↓') : '↕')));
+  }
+
+  function selectScheduleDay(date) {
+    selectedDay = date;
+    if (date) collapsed.schedule.delete(date);
+    render();
+    if (!date) return;
+    const wrap = $('fhmOut').querySelector('.fhm-schedule-wrap');
+    const target = wrap?.querySelector(`[data-fhm-day="${date}"]`);
+    if (target) {
+      const pinned = wrap.querySelector('.fhm-pin-total').getBoundingClientRect().right;
+      wrap.scrollLeft += target.getBoundingClientRect().left - pinned - 9;
+    }
+  }
+
   function scheduleContent(schedule) {
     const { dates, rows, totals } = schedule;
-    if (!rows.length) return h('p', { class: 'muted' }, 'Нет матчей для расписания.');
+    if (!rows.length) return h('p', { class: 'muted' }, $('fhmScheduleFilter').value === 'incomplete' && selectedDay
+      ? 'На выбранный день нет арен с незаполненной бригадой.'
+      : 'Нет матчей для расписания.');
     const days = dates.map(date => ({
       date, closed: collapsed.schedule.has(date), total: totals.get(date),
     }));
@@ -106,17 +141,17 @@
           day.closed ? null : SCHEDULE_FIELDS.map((_, i) => h('col', { class: i < 2 ? 'fhm-col-time' : 'fhm-col-crew' })))),
         h('thead', null,
           h('tr', { class: 'fhm-schedule-days' },
-            h('th', { class: 'fhm-pin fhm-pin-arena', scope: 'col', rowspan: 2 }, 'Арена'),
+            sortHeader('Арена', 'name', '', { class: 'fhm-pin fhm-pin-arena', rowspan: 2 }),
             h('th', { class: 'fhm-pin fhm-pin-location', scope: 'col', rowspan: 2 }, 'Локация'),
-            h('th', { class: 'fhm-pin fhm-pin-total', scope: 'col', rowspan: 2 }, 'Кол-во матчей'),
+            sortHeader('Кол-во матчей', 'count', '', { class: 'fhm-pin fhm-pin-total', rowspan: 2 }),
             days.map(({ date, closed, total }) => h('th', {
-              class: 'fhm-day-start', scope: 'colgroup', colspan: closed ? 1 : 1 + SCHEDULE_FIELDS.length,
+              class: date === selectedDay ? 'fhm-day-start fhm-selected-day' : 'fhm-day-start', scope: 'colgroup', colspan: closed ? 1 : 1 + SCHEDULE_FIELDS.length,
             }, dayButton(date, DATE.format(new Date(date))),
             !closed ? h('span', { class: 'fhm-weekday' }, WEEKDAY.format(new Date(date))) : null,
             h('small', { title: 'Одна бригада на строку арены с матчами' }, `Матчей: ${total?.matches || 0} · Бригад: ${total?.crews || 0}`)))),
           h('tr', { class: 'fhm-schedule-fields' }, days.flatMap(day => [
-            h('th', { class: 'fhm-day-start', scope: 'col' }, 'Матчей'),
-            ...(day.closed ? [] : SCHEDULE_FIELDS.map(label => h('th', { scope: 'col' }, label))),
+            sortHeader('Матчей', 'count', day.date, { class: 'fhm-day-start' }),
+            ...(day.closed ? [] : SCHEDULE_FIELDS.map(([field, label]) => sortHeader(label, field, day.date))),
           ]))),
         h('tbody', null, rows.map(arena => h('tr', null,
           h('th', { class: 'fhm-pin fhm-pin-arena', scope: 'row', title: arena.name }, arena.name || 'Арена уточняется'),
@@ -127,7 +162,7 @@
             const count = h('td', { class: 'fhm-day-start fhm-count' }, day?.count || 0);
             if (closed) return [count];
             if (!day) return [count, ...SCHEDULE_FIELDS.map(() => h('td', { class: 'fhm-empty' }))];
-            const end = window.FhmSchedule.endTime(day.finish);
+            const end = Schedule.endTime(day.finish);
             return [count, h('td', null, day.start), h('td', {
               title: day.finish >= 1440 ? 'Следующий день' : null,
             }, end), ...CREW_FIELDS.map(field => crewCell(arena, date, field))];
@@ -136,6 +171,7 @@
 
   function setView(value) {
     view = value;
+    $('fhmScheduleDayLabel').hidden = $('fhmScheduleFilterLabel').hidden = view !== 'schedule';
     document.querySelectorAll('[data-fhm-view]').forEach(button => {
       const active = button.dataset.fhmView === view;
       button.classList.toggle('on', active);
@@ -146,7 +182,7 @@
 
   function allDays(closed) {
     if (!calendar) return;
-    const dates = view === 'schedule' ? window.FhmSchedule.buildSchedule([], period).dates : calendar.map(match => match.date);
+    const dates = view === 'schedule' ? Schedule.buildSchedule([], period).dates : calendar.map(match => match.date);
     if (closed) dates.forEach(date => collapsed[view].add(date));
     else dates.forEach(date => collapsed[view].delete(date));
     render();
@@ -158,12 +194,24 @@
     const matches = query ? calendar.filter(match => [match.home, match.away, match.venue, match.group, match.tour, match.location, match.year]
       .some(value => String(value ?? '').toLocaleLowerCase('ru').includes(query))) : calendar;
     const out = $('fhmOut');
-    const schedule = view === 'schedule' ? window.FhmSchedule.buildSchedule(matches, period) : null;
+    const schedule = view === 'schedule' ? Schedule.buildSchedule(matches, period) : null;
     $('fhmCollapse').disabled = $('fhmExpand').disabled = schedule ? !schedule.rows.length : !matches.length;
     if (schedule) {
-      $('fhmStatus').textContent = MONTH.format(new Date(period.from)) + ' · арен: ' + schedule.rows.length;
+      const day = $('fhmScheduleDay');
+      if (!schedule.dates.includes(selectedDay)) selectedDay = '';
+      if (sort.date && !schedule.dates.includes(sort.date)) sort = DEFAULT_SORT;
+      if (day.dataset.month !== period.from) {
+        day.dataset.month = period.from;
+        day.replaceChildren(h('option', { value: '' }, 'Весь месяц'),
+          ...schedule.dates.map(date => h('option', { value: date }, dayLabel(date))));
+      }
+      day.value = selectedDay;
+      const filter = $('fhmScheduleFilter');
+      filter.disabled = !selectedDay;
+      const rows = Schedule.arrangeRows(schedule.rows, crews, { day: selectedDay, mode: filter.value, sort });
+      $('fhmStatus').textContent = (selectedDay ? dayLabel(selectedDay) : MONTH.format(new Date(period.from))) + ' · арен: ' + rows.length;
       const old = out.querySelector('.fhm-schedule-wrap');
-      out.replaceChildren(scheduleContent(schedule));
+      out.replaceChildren(scheduleContent({ ...schedule, rows }));
       const wrap = out.querySelector('.fhm-schedule-wrap');
       if (old && wrap) { wrap.scrollLeft = old.scrollLeft; wrap.scrollTop = old.scrollTop; }
       return;
@@ -229,6 +277,8 @@
   document.querySelectorAll('[data-fhm-view]').forEach(button => {
     button.addEventListener('click', () => setView(button.dataset.fhmView));
   });
+  $('fhmScheduleDay').addEventListener('change', event => selectScheduleDay(event.currentTarget.value));
+  $('fhmScheduleFilter').addEventListener('change', render);
   $('fhmCollapse').addEventListener('click', () => allDays(true));
   $('fhmExpand').addEventListener('click', () => allDays(false));
   $('fhmSearch').addEventListener('input', render);
@@ -240,6 +290,9 @@
       calendar = null;
       period = null;
       crews = {};
+      selectedDay = '';
+      sort = DEFAULT_SORT;
+      $('fhmScheduleFilter').value = 'all';
       collapsed.calendar.clear();
       collapsed.schedule.clear();
       setView('calendar');

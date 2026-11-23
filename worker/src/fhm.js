@@ -1,3 +1,5 @@
+import { FHM_PUBLISHED_LOCATIONS } from './fhm-locations.js';
+
 const MATCHES_URL = 'https://api.fhmoscow.com/api/integrations/broadcast/v1/matches';
 const MAX_PAGES = 40;
 
@@ -86,4 +88,67 @@ export function parseFhmCrewEdit(data) {
       !['director', 'operator', 'stat', 'commentator'].includes(field) || typeof data.value !== 'string') return null;
   const value = data.value.trim().replace(/\s+/g, ' ');
   return value.length <= 80 ? { date, arena, field, value } : null;
+}
+
+const venueName = value => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase().replace(/ё/g, 'е');
+
+function placeAddress(value) {
+  if (typeof value === 'string') return value.trim();
+  if (!value || typeof value !== 'object') return '';
+  return [value.postalCode, value.addressRegion, value.addressLocality, value.streetAddress]
+    .filter(part => typeof part === 'string' && part.trim()).map(part => part.trim()).join(', ');
+}
+
+export function calendarVenueAddress(html, arena) {
+  const expected = venueName(arena);
+  for (const block of html.matchAll(/<script\b[^>]*\btype=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      const event = JSON.parse(block[1]);
+      if (event['@type'] === 'SportsEvent' && expected && venueName(event.location?.name) === expected) {
+        return placeAddress(event.location.address).slice(0, 300);
+      }
+    } catch { /* На странице есть другие блоки JSON-LD. */ }
+  }
+  return '';
+}
+
+export async function fetchCalendarVenueAddress({ matchId, arena }) {
+  if (!/^[1-9]\d{0,14}$/.test(String(matchId))) return '';
+  try {
+    const response = await fetch('https://fhmoscow.com/game/' + matchId, {
+      redirect: 'manual', signal: AbortSignal.timeout(4500),
+    });
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    return calendarVenueAddress(await response.text(), arena);
+  } catch {
+    return null;
+  }
+}
+
+export async function withCalendarAddresses(calendar, getAddresses) {
+  const venues = new Map(), addresses = {};
+  for (const row of calendar.matches) {
+    if (!row.venueId) continue;
+    if (row.location) addresses[row.venueId] = row.location;
+    else if (!row.copy && row.date && row.status !== 'cancelled' && !addresses[row.venueId]) {
+      const known = FHM_PUBLISHED_LOCATIONS[row.venueId];
+      if (known && venueName(known[0]) === venueName(row.venue)) addresses[row.venueId] = known[1];
+      else venues.set(row.venueId, { venueId: row.venueId, matchId: row.id, arena: row.venue });
+    }
+  }
+  const missing = [...venues.values()].filter(entry => !addresses[entry.venueId]);
+  const batches = [];
+  for (let i = 0; i < missing.length; i += 18) batches.push(missing.slice(i, i + 18));
+  for (let i = 0; i < batches.length; i += 2) {
+    await Promise.all(batches.slice(i, i + 2).map(async batch => {
+      try { Object.assign(addresses, await getAddresses(batch)); }
+      catch { /* Календарь остаётся доступен при недоступности страниц матчей. */ }
+    }));
+  }
+  return { matches: calendar.matches.map(row => ({
+    ...row, location: row.location || addresses[row.venueId] || '',
+  })) };
 }

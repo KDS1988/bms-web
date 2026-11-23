@@ -9,6 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { bmsFetch } from './bms.js';
 import { mergeDay } from './studios.js';
+import { fetchCalendarVenueAddress } from './fhm.js';
 
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
 
@@ -217,6 +218,29 @@ export class BmsSession extends DurableObject {
   async fhmConfig() { return (await this.ctx.storage.get('fhmConfig')) || null; }
 
   async fhmConfigSet(config) { await this.ctx.storage.put('fhmConfig', config); }
+
+  async fhmVenueAddresses(venues) {
+    const keyOf = venue => 'fhm-venue:' + venue.venueId;
+    const stored = await this.ctx.storage.get(venues.map(keyOf));
+    const now = Date.now(), addresses = {}, writes = {}, missing = [];
+    for (const venue of venues) {
+      const record = stored.get(keyOf(venue));
+      if (record && record.expires > now) {
+        if (record.address) addresses[venue.venueId] = record.address;
+      } else missing.push(venue);
+    }
+    for (let i = 0; i < missing.length; i += 3) {
+      await Promise.all(missing.slice(i, i + 3).map(async venue => {
+        const address = (await fetchCalendarVenueAddress(venue)) ?? await fetchCalendarVenueAddress(venue);
+        if (address === null) return;
+        const ttl = address ? 7 * 86400000 : 3600000;
+        writes[keyOf(venue)] = { address, expires: now + ttl };
+        if (address) addresses[venue.venueId] = address;
+      }));
+    }
+    if (Object.keys(writes).length) await this.ctx.storage.put(writes);
+    return addresses;
+  }
 
   async fhmCrews(dates) {
     const days = await this.ctx.storage.get(dates.map(date => 'fhm-crew:' + date));

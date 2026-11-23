@@ -8,7 +8,7 @@ import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
-import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey } from './fhm.js';
+import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from './fhm.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
@@ -233,7 +233,9 @@ async function route(req, env, url, ctx) {
     const config = await stub.fhmConfig();
     if (!config) throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', { code: 'fhm_not_configured' });
     const [calendar, crews] = await Promise.all([
-      cached(`fhm|${config.revision}|${from}|${to}`, 60_000, () => loadFhmCalendar(config.key, from, to)),
+      cached(`fhm|${config.revision}|${from}|${to}`, 60_000,
+        async () => withCalendarAddresses(await loadFhmCalendar(config.key, from, to),
+          venues => stub.fhmVenueAddresses(venues))),
       stub.fhmCrews(dateRange(from, to)),
     ]);
     return { ...calendar, crews };

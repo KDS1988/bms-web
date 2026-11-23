@@ -42,7 +42,35 @@
     return [Math.floor(clock / 60), clock % 60].map(n => String(n).padStart(2, '0')).join(':');
   }
 
-  const api = { buildSchedule, endTime };
+  const CREW_FIELDS = [['director', 'Реж'], ['operator', 'Опер'], ['stat', 'Стат'], ['commentator', 'Коммент']];
+
+  function crewComplete(crew) {
+    return CREW_FIELDS.every(([field]) => !!crew?.[field]?.trim());
+  }
+
+  function arrangeRows(rows, crews, { day, mode, sort }) {
+    const visible = rows.filter(row => !day || mode === 'all' ||
+      (row.days.has(day) && (mode === 'matches' || !crewComplete(crews[day]?.[row.key]))));
+    const value = row => {
+      if (!sort.date) return row[sort.field];
+      const item = row.days.get(sort.date);
+      if (sort.field === 'count') return item?.count || 0;
+      if (sort.field === 'start' || sort.field === 'finish') return item?.[sort.field];
+      return crews[sort.date]?.[row.key]?.[sort.field];
+    };
+    const byName = (a, b) => a.name.localeCompare(b.name, 'ru', { numeric: true });
+    return visible.sort((a, b) => {
+      const av = value(a), bv = value(b);
+      const aMissing = av == null || av === '', bMissing = bv == null || bv === '';
+      if (aMissing !== bMissing) return aMissing ? 1 : -1;
+      if (aMissing) return byName(a, b);
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv : String(av).localeCompare(String(bv), 'ru', { numeric: true });
+      return sort.direction * cmp || byName(a, b);
+    });
+  }
+
+  const api = { buildSchedule, endTime, CREW_FIELDS, crewComplete, arrangeRows };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.FhmSchedule = api;
 })(globalThis);
