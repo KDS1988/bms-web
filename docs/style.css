@@ -282,14 +282,16 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .fhm-schedule .fhm-pin-arena{left:0;text-align:left}
 .fhm-pin-location{left:var(--fhm-arena)}
 .fhm-pin-total{left:calc(var(--fhm-arena) + var(--fhm-location));box-shadow:2px 0 var(--line)}
-.fhm-schedule-wrap thead th{box-shadow:none}
-.fhm-schedule-wrap thead th.fhm-pin{z-index:8;background:var(--fhm-subheading);color:var(--fhm-heading-text)}
+/* Даты и заголовки столбцов прокручиваются как единая шапка. */
+.fhm-schedule-wrap thead{position:sticky;top:0;z-index:6}
+.fhm-schedule-wrap thead th{position:static;box-shadow:none}
+.fhm-schedule-wrap thead th.fhm-pin{position:sticky;top:auto;z-index:8;background:var(--fhm-subheading);color:var(--fhm-heading-text)}
 .fhm-schedule-days th{height:var(--fhm-head-height);background:var(--fhm-heading);color:var(--fhm-heading-text)}
 .fhm-schedule-days th.fhm-day-start{text-align:left;padding-left:9px}
 .fhm-schedule-days .fhm-day-toggle{border:0;background:transparent;color:inherit;padding:0;font-size:13px}
 .fhm-schedule-days .fhm-day-toggle span{color:inherit}
 .fhm-schedule-days small,.fhm-weekday{display:block;white-space:normal}
-.fhm-schedule-fields th{top:var(--fhm-head-height);background:var(--fhm-subheading);color:var(--fhm-heading-text)}
+.fhm-schedule-fields th{background:var(--fhm-subheading);color:var(--fhm-heading-text)}
 .fhm-schedule .fhm-day-start{border-left:2px solid var(--line)}
 .fhm-schedule .fhm-empty{background:var(--fhm-off)}
 @media(max-width:720px){
