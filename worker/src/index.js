@@ -2,7 +2,7 @@
  * Cloudflare Worker: единственная точка, которая ходит в BMS.
  * Фронтенд (GitHub Pages) получает только готовые данные и не видит токенов BMS.
  */
-import { BmsClient, fetchAssignments, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
+import { BmsClient, fetchAssignments, fetchEvents, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard, roleGroupKey } from './board.js';
 import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
@@ -282,9 +282,9 @@ async function route(req, env, url, ctx) {
     try {
       const result = await sessionStub(env).fhmCalendar(from, to, false);
       if (!result.calendar) return { ids: {}, available: false };
-      const bmsItems = await cached(`fhm-bms|${from}|${to}`, 60_000,
-        () => fetchAssignments(makeClient(env), from, to));
-      return { ids: matchFhmBmsIds(result.calendar.matches, bmsItems), available: true };
+      const events = await cached(`fhm-bms-events|${from}|${to}`, 60_000,
+        () => fetchEvents(makeClient(env), from, to));
+      return { ids: matchFhmBmsIds(result.calendar.matches, events), available: true };
     } catch {
       return { ids: {}, available: false };
     }

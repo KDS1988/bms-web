@@ -68,38 +68,40 @@ function isFhmLeague(league) {
     /(?:^|[^а-яё])фхм(?:$|[^а-яё])|федерация хоккея москвы/iu.test(String(name || '')));
 }
 
-export function matchFhmBmsIds(rows, assignmentItems) {
-  const byKickoff = new Map();
-  for (const item of assignmentItems) {
-    const event = item?.event;
-    const id = Number(event?.id);
-    if (!Number.isSafeInteger(id) || id <= 0 || !isFhmLeague(event.league)) continue;
-    const explicit = [event.home_team?.name, event.away_team?.name];
-    const teams = explicit.every(Boolean) ? explicit
-      : String(event.additional_info || event.event_description || '').trim().split(/\s+[-–—]\s+/);
-    const time = /^(\d{1,2}):(\d{2})(?::|$)/.exec(event.start_time || '');
-    const [home, away] = teams;
-    if (teams.length !== 2 || !home || !away || !event.date || !time) continue;
-    const slot = `${event.date}T${time[1].padStart(2, '0')}:${time[2]}`;
-    if (!byKickoff.has(slot)) byKickoff.set(slot, new Map());
-    byKickoff.get(slot).set(id, { home, away });
-  }
-  const candidates = new Map(), uses = new Map();
-  const sameTeam = (label, birthYear, bmsLabel) => {
-    const key = teamKey(label);
-    return key && (key === teamKey(bmsLabel) || key === teamKey(calendarTeamName({ fullName: bmsLabel, year: birthYear })));
-  };
+const matchKey = (date, time, year, home, away) => [date, time, year, teamKey(home), teamKey(away)].join('|');
+
+export function matchFhmBmsIds(rows, events) {
+  const calendar = new Map(), candidates = new Map();
   for (const row of rows) {
-    if (row.copy || !row.date || !row.time) continue;
-    const events = byKickoff.get(row.date + 'T' + row.time);
-    if (!events) continue;
-    const ids = [...events].filter(([, event]) =>
-      sameTeam(row.home, row.homeYear, event.home) && sameTeam(row.away, row.awayYear, event.away)).map(([id]) => id);
-    if (ids.length) candidates.set(row.id, ids);
-    for (const id of ids) uses.set(id, (uses.get(id) || 0) + 1);
+    if (row.copy || !row.date || !row.time || !row.year || !row.home || !row.away) continue;
+    const key = matchKey(row.date, row.time, row.year, row.home, row.away);
+    if (!calendar.has(key)) calendar.set(key, new Set());
+    calendar.get(key).add(row.id);
   }
-  return Object.fromEntries([...candidates].flatMap(([id, matches]) =>
-    matches.length === 1 && uses.get(matches[0]) === 1 ? [[id, matches[0]]] : []));
+  for (const event of events) {
+    const id = Number(event?.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || !event.date || !isFhmLeague(event.league)) continue;
+    for (const line of String(event.event_description || '').split(/\r?\n|;/)) {
+      const parts = /^\s*([01]?\d|2[0-3]):([0-5]\d)\s*,\s*(\d{4})\s*,\s*(.+?)\s*$/.exec(line);
+      if (!parts) continue;
+      const [, hour, minute, year, teams] = parts;
+      const time = `${hour.padStart(2, '0')}:${minute}`;
+      const matched = new Set();
+      // Перебираем разделители: пробелы вокруг дефиса бывают и внутри названия клуба.
+      for (const separator of teams.matchAll(/\s+[-–—]\s+/g)) {
+        const home = calendarTeamName({ fullName: teams.slice(0, separator.index), year });
+        const away = calendarTeamName({ fullName: teams.slice(separator.index + separator[0].length), year });
+        const ids = calendar.get(matchKey(event.date, time, year, home, away));
+        for (const rowId of ids || []) matched.add(rowId);
+      }
+      if (matched.size !== 1) continue;
+      const [rowId] = matched;
+      if (!candidates.has(rowId)) candidates.set(rowId, new Set());
+      candidates.get(rowId).add(id);
+    }
+  }
+  return Object.fromEntries([...candidates].flatMap(([rowId, ids]) =>
+    ids.size === 1 ? [[rowId, ids.values().next().value]] : []));
 }
 
 export async function loadFhmCalendar(key, from, to, { progress, pageInterval = 0 } = {}) {

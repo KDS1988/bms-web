@@ -132,6 +132,20 @@ export async function fetchAssignments(client, dateFrom, dateTo) {
   return items;
 }
 
+export async function fetchEvents(client, from, to) {
+  const loadPage = page => client.get('projects/event/list', {
+    page, size: 100, date__gte: from, date__lte: to, order_by: 'date,start_time,-id',
+  });
+  const first = await loadPage(1);
+  const items = [...first.items];
+  for (let page = 2; page <= first.pages; page += 5) {
+    const count = Math.min(5, first.pages - page + 1);
+    const batch = await Promise.all(Array.from({ length: count }, (_, i) => loadPage(page + i)));
+    for (const result of batch) items.push(...result.items);
+  }
+  return items;
+}
+
 /** Link-записи доп.услуг: именно их id ждёт назначение, а не id из справочника. */
 export async function additionalLinkIds(client, eventServiceId, catalogIds) {
   if (!catalogIds.length) return [];

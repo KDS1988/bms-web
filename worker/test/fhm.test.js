@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fetchEvents } from '../src/bms.js';
 import { FhmError, calendarTeamName, calendarVenueAddress, loadFhmCalendar, matchFhmBmsIds, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from '../src/fhm.js';
 
 const from = '2026-11-01', to = '2026-11-30';
@@ -101,20 +102,35 @@ test('календарь ДХ: удаляет только год рождени
   assert.equal(calendarTeamName({ fullName: 'Клуб 2010', year: 2015 }), 'Клуб 2010');
 });
 
-test('календарь ДХ: связывает с ID мероприятия БМС по дате, времени и обеим командам', () => {
-  const row = { id: 1, date: from, time: '09:30', home: 'Локомотив-2004', away: 'Динамо', homeYear: 2009, awayYear: 2009 };
+test('календарь ДХ: берёт дату мероприятия и время, год и команды из описания БМС', () => {
+  const row = { id: 23658, date: '2026-11-21', time: '09:30', year: 2016, home: 'Академия Михайлова (Москва)', away: 'Динамо' };
   const event = {
-    id: 406, date: from, start_time: '9:30:00', league: { short_name: 'ФХМ' },
-    home_team: { name: 'Локомотив - 2004 2009' }, away_team: { name: 'Динамо 2009' },
+    id: 18162, date: row.date, start_time: '08:00:00',
+    league: { full_name: 'Федерация хоккея Москвы' },
+    additional_info: 'Арена Сталкер',
+    event_description: '09:30, 2016, Академия Михайлова (Москва) - Динамо',
   };
-  assert.deepEqual(matchFhmBmsIds([row, { ...row, copy: true }], [
-    { id: 98, event }, { id: 99, event }, { event: { ...event, id: 407, date: to } },
-    { event: { ...event, id: 408, start_time: '09:35:00' } },
-    { event: { ...event, id: 409, away_team: { name: 'Динамо 2016' } } },
-    { event: { ...event, id: 410, league: { short_name: 'КХЛ' } } },
-  ]), { 1: 406 });
-  assert.deepEqual(matchFhmBmsIds([row], [{ event }, { event: { ...event, id: 111 } }]), {});
-  assert.deepEqual(matchFhmBmsIds([row, { ...row, id: 2 }], [{ event }]), {});
+  const calendar = [row, { ...row, copy: true }, { ...row, id: 2, year: 2017 }, { ...row, id: 3, date: '2026-11-22' }];
+  assert.deepEqual(matchFhmBmsIds(calendar, [
+    event, { ...event, id: 18163, event_description: '09:35, 2016, Академия Михайлова (Москва) - Динамо' },
+    { ...event, id: 18164, event_description: '', additional_info: event.event_description },
+    { ...event, id: 18165, league: { short_name: 'КХЛ' } },
+  ]), { 23658: 18162 });
+  assert.deepEqual(matchFhmBmsIds([row], [event, { ...event, id: 18166 }]), {});
+  assert.deepEqual(matchFhmBmsIds([row, { ...row, id: 4 }], [event]), {});
+});
+
+test('календарь ДХ: одно гибридное мероприятие может содержать два матча', () => {
+  const date = '2026-11-21';
+  const rows = [
+    { id: 1, date, time: '09:30', year: 2009, home: 'Локомотив-2004', away: 'Динамо' },
+    { id: 2, date, time: '12:00', year: 2017, home: 'Спартак', away: 'Динамо' },
+  ];
+  const event = {
+    id: 18162, date, league: { short_name: 'ФХМ' },
+    event_description: '9:30, 2009, Локомотив - 2004 2009 — Динамо\r\n12:00, 2017, Спартак – Динамо',
+  };
+  assert.deepEqual(matchFhmBmsIds(rows, [event]), { 1: 18162, 2: 18162 });
 });
 
 test('ФХМ: после 429 сохраняет курсор и продолжает со следующей страницы', async t => {
@@ -138,4 +154,16 @@ test('ФХМ: после 429 сохраняет курсор и продолжа
   const result = await loadFhmCalendar('prefix.test', from, to, { progress: checkpoint });
   assert.deepEqual(result.matches.map(row => row.id), [1, 2]);
   assert.equal(fetch.mock.calls[2].arguments[0].searchParams.get('cursor'), 'next');
+});
+
+
+test('ДХ читает все страницы списка мероприятий БМС за выбранный период', async () => {
+  const calls = [];
+  const client = { get: async (path, query) => {
+    calls.push({ path, query });
+    return { items: [{ id: query.page }], pages: 3 };
+  } };
+  assert.deepEqual(await fetchEvents(client, from, to), [{ id: 1 }, { id: 2 }, { id: 3 }]);
+  assert.deepEqual(calls.map(({ path, query }) => [path, query.page, query.date__gte, query.date__lte]),
+    [1, 2, 3].map(pageNumber => ['projects/event/list', pageNumber, from, to]));
 });
