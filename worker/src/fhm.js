@@ -4,9 +4,10 @@ const MATCHES_URL = 'https://api.fhmoscow.com/api/integrations/broadcast/v1/matc
 const MAX_PAGES = 40;
 
 export class FhmError extends Error {
-  constructor(message, status) {
+  constructor(message, status, retryAt) {
     super(message);
     this.status = status;
+    this.retryAt = retryAt;
   }
 }
 
@@ -28,7 +29,14 @@ async function fetchPage(key, from, to, { limit, cursor, signal }) {
   if (response.status === 401 || response.status === 403) {
     throw new FhmError('ФХМ не приняла ключ или не разрешила доступ к календарю.', response.status);
   }
-  if (response.status === 429) throw new FhmError('Достигнут лимит запросов ФХМ. Попробуйте позже.', 429);
+  if (response.status === 429) {
+    const header = response.headers.get('Retry-After');
+    const now = Date.now();
+    const until = header && /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header);
+    await response.body?.cancel().catch(() => {});
+    const retryAt = Number.isFinite(until) && until > now ? until : now + 300_000;
+    throw new FhmError('Достигнут лимит запросов ФХМ.', 429, retryAt);
+  }
   if (!response.ok) throw new FhmError('API ФХМ вернул ошибку. Попробуйте позже.', response.status);
 
   const page = await response.json().catch(() => null);
@@ -94,13 +102,24 @@ export function matchFhmBmsIds(rows, assignmentItems) {
     matches.length === 1 && uses.get(matches[0]) === 1 ? [[id, matches[0]]] : []));
 }
 
-export async function loadFhmCalendar(key, from, to) {
-  const matches = new Map();
-  const seen = new Set();
-  const signal = AbortSignal.timeout(25000);
-  let cursor = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const result = await fetchPage(key, from, to, { limit: 100, cursor, signal });
+export async function loadFhmCalendar(key, from, to, { progress, pageInterval = 0 } = {}) {
+  const matches = new Map((progress?.rows || []).map(row => [row.id, row]));
+  const seen = new Set(progress?.seen || []);
+  const signal = AbortSignal.timeout(55000);
+  let cursor = progress?.cursor || null;
+  for (let page = seen.size; page < MAX_PAGES; page++) {
+    if (pageInterval && page > (progress?.seen.length || 0)) {
+      await new Promise(resolve => setTimeout(resolve, pageInterval));
+    }
+    let result;
+    try {
+      result = await fetchPage(key, from, to, { limit: 100, cursor, signal });
+    } catch (error) {
+      if (error instanceof FhmError && error.status === 429 && cursor) {
+        error.progress = { rows: [...matches.values()], seen: [...seen], cursor };
+      }
+      throw error;
+    }
     for (const match of result.data) {
       const date = match.startsAt?.slice(0, 10) || '';
       const homeYear = match.homeTeam?.year, awayYear = match.awayTeam?.year;

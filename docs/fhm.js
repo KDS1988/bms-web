@@ -14,7 +14,7 @@
   const DEFAULT_SORT = { field: 'name', date: '', direction: 1 };
   const collapsed = { calendar: new Set(), schedule: new Set() };
   let calendar = null, period = null, view = 'calendar', crews = {};
-  let bmsIds = {}, bmsStatus = '';
+  let bmsIds = {}, bmsStatus = '', calendarStatus = '';
   let request = 0, selectedDay = '', sort = DEFAULT_SORT;
 
   function dayLabel(date) { return date ? fmtDay(date) : 'Дата уточняется'; }
@@ -227,7 +227,7 @@
       const filter = $('fhmScheduleFilter');
       filter.disabled = !selectedDay;
       const rows = Schedule.arrangeRows(schedule.rows, crews, { day: selectedDay, mode: filter.value, sort });
-      $('fhmStatus').textContent = (selectedDay ? dayLabel(selectedDay) : MONTH.format(new Date(period.from))) + ' · арен: ' + rows.length;
+      $('fhmStatus').textContent = withStatus((selectedDay ? dayLabel(selectedDay) : MONTH.format(new Date(period.from))) + ' · арен: ' + rows.length);
       const old = out.querySelector('.fhm-schedule-wrap');
       out.replaceChildren(scheduleContent({ ...schedule, rows }));
       const wrap = out.querySelector('.fhm-schedule-wrap');
@@ -235,7 +235,7 @@
       return;
     }
     const count = query ? `Матчей: ${matches.length} из ${calendar.length}` : `Матчей: ${matches.length}`;
-    $('fhmStatus').textContent = bmsStatus ? count + ' · ' + bmsStatus : count;
+    $('fhmStatus').textContent = withStatus(bmsStatus ? count + ' · ' + bmsStatus : count);
     out.replaceChildren(...(matches.length ? calendarContent(matches) : [
       h('p', { class: 'muted' }, calendar.length ? 'По запросу матчей нет.' : 'В выбранном месяце матчей нет.'),
     ]));
@@ -254,11 +254,19 @@
     if (S.tab === 'fhm' && view === 'calendar') render();
   }
 
+  const UPDATE_TIME = new Intl.DateTimeFormat('ru-RU', {
+    timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  });
+  const updateTime = value => UPDATE_TIME.format(new Date(value)) + ' МСК';
+  const deferred = retryAt => retryAt ? ' · повтор после ' + updateTime(retryAt) : '';
+  const withStatus = text => [text, calendarStatus].filter(Boolean).join(' · ');
+
   async function load() {
     const current = ++request;
     calendar = null;
     bmsIds = {};
     bmsStatus = '';
+    calendarStatus = '';
     period = range();
     $('fhmCollapse').disabled = $('fhmExpand').disabled = true;
     $('fhmStatus').textContent = 'Загружаю календарь…';
@@ -269,6 +277,7 @@
       if (current !== request || S.tab !== 'fhm') return;
       calendar = data.matches;
       crews = data.crews || {};
+      if (data.stale && data.updatedAt) calendarStatus = 'Сохранённые данные от ' + updateTime(data.updatedAt) + deferred(data.retryAt);
       if (calendar.length && canView('fhm-calendar')) {
         bmsStatus = 'Сверяю ID БМС…';
         void loadBmsIds(current, period);
@@ -279,7 +288,7 @@
       $('fhmStatus').textContent = '';
       const adminButton = e.code === 'fhm_not_configured' && S.user?.role === 'admin'
         ? h('button', { onclick: () => document.querySelector('#tab-admin').click() }, 'Перейти в админку') : null;
-      $('fhmOut').replaceChildren(h('p', { class: 'muted' }, e.message), ...(adminButton ? [adminButton] : []));
+      $('fhmOut').replaceChildren(h('p', { class: 'muted' }, e.message + deferred(e.retryAt)), ...(adminButton ? [adminButton] : []));
     }
   }
 
@@ -290,7 +299,7 @@
       const result = await api('/api/admin/fhm');
       if (session === S.token) status.textContent = result.configured ? 'Подключено' : 'Введите ключ для подключения календаря.';
     } catch (e) {
-      if (session === S.token) status.textContent = e.message;
+      if (session === S.token) status.textContent = e.message + deferred(e.retryAt);
     }
   }
 
@@ -307,7 +316,7 @@
         status.textContent = 'Подключено';
       }
     } catch (e) {
-      if (session === S.token) status.textContent = e.message;
+      if (session === S.token) status.textContent = e.message + deferred(e.retryAt);
     } finally {
       button.disabled = false;
     }
@@ -329,6 +338,7 @@
       calendar = null;
       bmsIds = {};
       bmsStatus = '';
+      calendarStatus = '';
       period = null;
       crews = {};
       selectedDay = '';

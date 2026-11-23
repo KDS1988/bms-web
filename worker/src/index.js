@@ -8,7 +8,7 @@ import { sanitizePlan } from './plans.js';
 import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
-import { FhmError, loadFhmCalendar, matchFhmBmsIds, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from './fhm.js';
+import { matchFhmBmsIds, parseFhmCrewEdit, withCalendarAddresses } from './fhm.js';
 import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasSection, parseUserAccess } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
@@ -149,9 +149,23 @@ function studioBoardView({ days, stale, generatedAt }) {
   };
 }
 
-function fhmMatches(config, from, to) {
-  return cached(`fhm-matches|${config.revision}|${from}|${to}`, 60_000,
-    () => loadFhmCalendar(config.key, from, to));
+function checkFhmMonth(from, to) {
+  checkRange(from, to);
+  const [year, month] = from.split('-').map(Number);
+  const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  if (!from.endsWith('-01') || to !== end) throw new HttpError(400, 'Выберите один календарный месяц');
+}
+
+function fhmUnavailable(result) {
+  if (result.retryAt) {
+    throw new HttpError(503, result.error || 'Обновление календаря ФХМ отложено.', {
+      code: 'fhm_retry', retryAt: result.retryAt,
+    });
+  }
+  if (result.busy) throw new HttpError(503, 'Календарь ФХМ сейчас обновляется. Повторите через несколько секунд.');
+  throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', {
+    code: 'fhm_not_configured',
+  });
 }
 
 async function route(req, env, url, ctx) {
@@ -233,50 +247,44 @@ async function route(req, env, url, ctx) {
     const data = await body(req);
     const key = typeof data?.key === 'string' ? data.key.trim() : '';
     if (key.length > 256 || !/^[\w-]+\.[\w-]+$/.test(key)) throw new HttpError(400, 'Введите ключ ФХМ в формате prefix.secret');
-    try {
-      await verifyFhmKey(key);
-    } catch (e) {
-      if (e instanceof FhmError && [401, 403].includes(e.status)) throw new HttpError(400, e.message);
-      throw e;
-    }
-    await stub.fhmConfigSet({ key, revision: crypto.randomUUID() });
-    return { configured: true };
+    const result = await stub.fhmConnect(key);
+    if (result.configured) return { configured: true };
+    if (result.invalid) throw new HttpError(400, result.error);
+    fhmUnavailable(result);
   }
 
   if (['/api/fhm/calendar', '/api/fhm/schedule'].includes(path) && req.method === 'GET') {
     const schedule = path === '/api/fhm/schedule';
     need(schedule ? 'fhm-schedule' : 'fhm-calendar');
     const from = url.searchParams.get('from'), to = url.searchParams.get('to');
-    checkRange(from, to);
+    checkFhmMonth(from, to);
     const stub = sessionStub(env);
-    const config = await stub.fhmConfig();
-    if (!config) throw new HttpError(503, 'Календарь ФХМ ещё не подключён. Ключ сохраняется в разделе «Админ» → «ДХ: календарь ФХМ».', { code: 'fhm_not_configured' });
-    const [calendar, crews] = await Promise.all([
-      cached(`fhm|${config.revision}|${from}|${to}`, 60_000,
-        async () => withCalendarAddresses(await fhmMatches(config, from, to),
-          venues => stub.fhmVenueAddresses(venues))),
+    const [result, crews] = await Promise.all([
+      stub.fhmCalendar(from, to, true),
       schedule || hasSection(access, 'fhm-schedule') ? stub.fhmCrews(dateRange(from, to)) : {},
     ]);
+    if (!result.calendar) fhmUnavailable(result);
+    const calendar = await cached(`fhm-addresses|${from}|${result.updatedAt}`, 60_000,
+      () => withCalendarAddresses(result.calendar, venues => stub.fhmVenueAddresses(venues)));
+    const timing = { updatedAt: result.updatedAt, stale: !!result.stale, retryAt: result.retryAt || null };
     if (schedule && !hasSection(access, 'fhm-calendar')) {
       const matches = calendar.matches.map(({ id, date, time, duration, year, venue, venueId, location, status, copy }) =>
         ({ id, date, time, duration, year, venue, venueId, location, status, copy }));
-      return { matches, crews };
+      return { matches, crews, ...timing };
     }
-    return { ...calendar, crews };
+    return { ...calendar, crews, ...timing };
   }
 
   if (path === '/api/fhm/bms-ids' && req.method === 'GET') {
     need('fhm-calendar');
     const from = url.searchParams.get('from'), to = url.searchParams.get('to');
-    checkRange(from, to);
-    const config = await sessionStub(env).fhmConfig();
-    if (!config) return { ids: {}, available: false };
+    checkFhmMonth(from, to);
     try {
-      const [calendar, bmsItems] = await Promise.all([
-        fhmMatches(config, from, to),
-        cached(`fhm-bms|${from}|${to}`, 60_000, () => fetchAssignments(makeClient(env), from, to)),
-      ]);
-      return { ids: matchFhmBmsIds(calendar.matches, bmsItems), available: true };
+      const result = await sessionStub(env).fhmCalendar(from, to, false);
+      if (!result.calendar) return { ids: {}, available: false };
+      const bmsItems = await cached(`fhm-bms|${from}|${to}`, 60_000,
+        () => fetchAssignments(makeClient(env), from, to));
+      return { ids: matchFhmBmsIds(result.calendar.matches, bmsItems), available: true };
     } catch {
       return { ids: {}, available: false };
     }
@@ -624,7 +632,6 @@ export default {
     try {
       return json(await route(req, env, url, ctx), 200, cors);
     } catch (e) {
-      if (e instanceof FhmError) return json({ error: e.message }, e.status === 429 ? 429 : 502, cors);
       if (e instanceof HttpError) return json({ error: e.message, ...(e.extra || {}) }, e.status, cors);
       const msg = String(e && e.message || e);
       if (msg.includes(LOGIN_REQUIRED)) {

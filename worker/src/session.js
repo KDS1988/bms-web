@@ -10,7 +10,8 @@ import { DurableObject } from 'cloudflare:workers';
 import { bmsFetch } from './bms.js';
 import { mergeDay } from './studios.js';
 import { storedUserAccess } from './auth.js';
-import { fetchCalendarVenueAddress } from './fhm.js';
+import { FhmError, fetchCalendarVenueAddress, loadFhmCalendar, verifyFhmKey } from './fhm.js';
+import { readFhmCache, writeFhmCache, deleteFhmCache } from './fhm-cache.js';
 
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
 
@@ -24,6 +25,7 @@ function jwtExpMs(jwt) {
 export class BmsSession extends DurableObject {
   #inflight = null;
   #lastRefreshAt = 0;
+  #fhmFlight = null;
 
   async #load() {
     return (await this.ctx.storage.get('session')) || null;
@@ -228,6 +230,89 @@ export class BmsSession extends DurableObject {
   async fhmConfig() { return (await this.ctx.storage.get('fhmConfig')) || null; }
 
   async fhmConfigSet(config) { await this.ctx.storage.put('fhmConfig', config); }
+
+  async fhmConnect(key) {
+    const existing = await this.fhmConfig();
+    if (existing?.key === key) return { configured: true };
+    const retryAt = await this.ctx.storage.get('fhm-retry-at');
+    if (retryAt > Date.now()) return { retryAt };
+    if (this.#fhmFlight) return { busy: true };
+    const request = (async () => {
+      try {
+        await verifyFhmKey(key);
+        await this.fhmConfigSet({ key, revision: crypto.randomUUID() });
+        return { configured: true };
+      } catch (error) {
+        const failure = await this.#fhmFailure(error);
+        return { ...failure, invalid: error instanceof FhmError && [401, 403].includes(error.status) };
+      }
+    })();
+    this.#fhmFlight = { key: null, request };
+    try { return await request; }
+    finally { this.#fhmFlight = null; }
+  }
+
+  async #fhmFailure(error) {
+    const rateLimited = error instanceof FhmError && error.status === 429;
+    const retryAt = rateLimited ? error.retryAt : Date.now() + 60_000;
+    await this.ctx.storage.put('fhm-retry-at', retryAt);
+    return {
+      retryAt, rateLimited,
+      error: error instanceof FhmError ? error.message : 'Не удалось обновить календарь ФХМ.',
+    };
+  }
+
+  #refreshFhm(config, from, to, key) {
+    if (this.#fhmFlight) return this.#fhmFlight.key === key
+      ? this.#fhmFlight.request : Promise.resolve({ busy: true });
+    const request = this.#downloadFhm(config, from, to, key).finally(() => { this.#fhmFlight = null; });
+    this.#fhmFlight = { key, request };
+    return request;
+  }
+
+  async #downloadFhm(config, from, to, key) {
+    const storage = this.ctx.storage;
+    const checkpointKey = key + ':partial';
+    try {
+      const retryAt = await storage.get('fhm-retry-at');
+      if (retryAt > Date.now()) return { retryAt };
+      const checkpoint = await readFhmCache(storage, checkpointKey);
+      const progress = checkpoint && checkpoint.at + 6 * 3600000 > Date.now() ? checkpoint.value : null;
+      const calendar = await loadFhmCalendar(config.key, from, to, { progress, pageInterval: 1100 });
+      const snapshot = await writeFhmCache(storage, key, calendar);
+      if (checkpoint) await deleteFhmCache(storage, checkpointKey);
+      return { calendar: snapshot.value, updatedAt: snapshot.at };
+    } catch (error) {
+      const failure = await this.#fhmFailure(error);
+      if (error instanceof FhmError && error.progress) {
+        await writeFhmCache(storage, checkpointKey, error.progress);
+      } else if (error instanceof FhmError && error.status === 400) {
+        await deleteFhmCache(storage, checkpointKey);
+      }
+      return failure;
+    }
+  }
+
+  async fhmCalendar(from, to, refresh) {
+    const config = await this.fhmConfig();
+    if (!config) return { configured: false };
+    const key = `fhm-month:${config.revision}:${from}`;
+    const [record, retryAt] = await Promise.all([
+      readFhmCache(this.ctx.storage, key), this.ctx.storage.get('fhm-retry-at'),
+    ]);
+    const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format();
+    const ttl = (to < today ? 12 : 1) * 3600000;
+    if (record) {
+      const stale = Date.now() - record.at >= ttl;
+      if (stale && refresh && !(retryAt > Date.now())) {
+        this.ctx.waitUntil(this.#refreshFhm(config, from, to, key).catch(() => {}));
+      }
+      return { calendar: record.value, updatedAt: record.at, stale, retryAt: retryAt > Date.now() ? retryAt : null };
+    }
+    if (!refresh) return { configured: true };
+    if (retryAt > Date.now()) return { retryAt };
+    return this.#refreshFhm(config, from, to, key);
+  }
 
   async fhmVenueAddresses(venues) {
     const keyOf = venue => 'fhm-venue:' + venue.venueId;

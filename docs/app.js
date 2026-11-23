@@ -83,7 +83,7 @@
       initGoogle();
     }
     if (r.status === 403 && data.code === 'access_denied' && S.token) refreshAccess();
-    if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; e.status = r.status; throw e; }
+    if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; e.retryAt = data.retryAt; e.status = r.status; throw e; }
     return data;
   }
 

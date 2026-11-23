@@ -116,3 +116,26 @@ test('календарь ДХ: связывает с ID мероприятия �
   assert.deepEqual(matchFhmBmsIds([row], [{ event }, { event: { ...event, id: 111 } }]), {});
   assert.deepEqual(matchFhmBmsIds([row, { ...row, id: 2 }], [{ event }]), {});
 });
+
+test('ФХМ: после 429 сохраняет курсор и продолжает со следующей страницы', async t => {
+  const now = Date.now();
+  let limited = true;
+  const fetch = t.mock.method(globalThis, 'fetch', async url => {
+    const cursor = url.searchParams.get('cursor');
+    if (!cursor) return page([match(1, '2026-11-10T09:20:00+03:00')], 'next');
+    if (limited) {
+      limited = false;
+      return new Response('', { status: 429, headers: { 'Retry-After': '90' } });
+    }
+    return page([match(2, '2026-11-11T09:20:00+03:00')], null);
+  });
+  let checkpoint;
+  await assert.rejects(loadFhmCalendar('prefix.test', from, to), error => {
+    checkpoint = error.progress;
+    return error.status === 429 && error.retryAt >= now + 90_000 && checkpoint.cursor === 'next';
+  });
+  assert.equal(fetch.mock.callCount(), 2);
+  const result = await loadFhmCalendar('prefix.test', from, to, { progress: checkpoint });
+  assert.deepEqual(result.matches.map(row => row.id), [1, 2]);
+  assert.equal(fetch.mock.calls[2].arguments[0].searchParams.get('cursor'), 'next');
+});
