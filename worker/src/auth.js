@@ -1,7 +1,7 @@
 /**
  * Авторизация отдела: вход через Google (ID-токен проверяется по ключам Google),
  * затем Worker выдаёт собственный короткий сессионный токен (HS256, 12 ч).
- * Права — по спискам email в переменных окружения Worker'а.
+ * Права — по серверным спискам email и записям доступа сотрудника.
  */
 
 const enc = new TextEncoder();
@@ -86,3 +86,25 @@ export function roleFor(email, env) {
 
 export const ROLE_LEVEL = { viewer: 1, editor: 2, admin: 3 };
 export const hasRole = (role, need) => (ROLE_LEVEL[role] || 0) >= ROLE_LEVEL[need];
+
+export const ACCESS_SECTIONS = ['board', 'studios', 'fhm-calendar', 'fhm-schedule', 'rates'];
+
+export function parseUserAccess(data) {
+  if (data?.role === 'admin') return { role: 'admin' };
+  if (data?.role !== 'scoped' || !data.permissions || Array.isArray(data.permissions) || typeof data.permissions !== 'object') return null;
+  const entries = Object.entries(data.permissions);
+  if (entries.some(([section, level]) => !ACCESS_SECTIONS.includes(section) ||
+    !['none', 'viewer', 'editor'].includes(level) || (section === 'fhm-calendar' && level === 'editor'))) return null;
+  const permissions = Object.fromEntries(entries.filter(([, level]) => level !== 'none'));
+  return Object.keys(permissions).length ? { role: 'scoped', permissions } : null;
+}
+
+export function hasSection(access, section, need = 'viewer') {
+  if (!access || !ACCESS_SECTIONS.includes(section)) return false;
+  return hasRole(access.role === 'scoped' ? access.permissions?.[section] : access.role, need);
+}
+
+export function storedUserAccess(record) {
+  if (!record) return null;
+  return record.role === undefined ? { role: 'admin' } : parseUserAccess(record);
+}

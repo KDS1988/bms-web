@@ -55,7 +55,7 @@
       crew[field] = value.trim();
       return { value: crew[field] };
     }
-    if (path === '/api/fhm/calendar') {
+    if (path === '/api/fhm/calendar' || path === '/api/fhm/schedule') {
       const first = { id: 901, date: q.from, time: '10:30', home: 'Команда Север', away: 'Команда Восток', year: 2017, duration: 105,
         group: 'Группа А', tour: '12 тур', venue: 'Ледовый дворец', venueId: 1, location: 'Москва', status: 'scheduled' };
       return { crews: fhmCrews, matches: [
@@ -66,7 +66,7 @@
           group: 'Группа А', tour: '13 тур', venue: 'Ледовая арена', venueId: 2, location: 'Подольск', status: 'scheduled' },
       ] };
     }
-    if (path === '/api/board') {
+    if (path === '/api/board' || path === '/api/studios/board') {
       const rows = makeRows(q.from, q.to), days = [];
       rows.forEach(r => { let d = days.find(x => x.date === r.date); if (!d) days.push(d = { date: r.date, rows: [] }); d.rows.push(r); });
       return { days, leagues: ['КХЛ', 'РПЛ'], total: rows.length };

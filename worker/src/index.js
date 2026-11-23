@@ -9,7 +9,7 @@ import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } fro
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { FhmError, loadFhmCalendar, parseFhmCrewEdit, verifyFhmKey, withCalendarAddresses } from './fhm.js';
-import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasRole } from './auth.js';
+import { verifyGoogleIdToken, signSession, verifySession, roleFor, hasSection, parseUserAccess } from './auth.js';
 import { LOGIN_REQUIRED } from './session.js';
 
 export { BmsSession } from './session.js';
@@ -36,7 +36,7 @@ function corsHeaders(req, env) {
 }
 
 const json = (data, status, cors) =>
-  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...cors } });
+  new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...cors } });
 
 function checkRange(from, to) {
   if (!ISO.test(from || '') || !ISO.test(to || '')) throw new HttpError(400, 'Нужны даты from и to в формате ГГГГ-ММ-ДД');
@@ -87,19 +87,11 @@ function cached(key, ttlMs, fn) {
   cache.set(key, { at: Date.now(), p });
   return p;
 }
-const clearCache = () => { cache.clear(); roleCache.clear(); };
+const clearCache = () => cache.clear();
 
-// роль: сначала списки из настроек (владелец), затем пользователи, принятые в админ-кабинете (с коротким кэшем)
-const roleCache = new Map();           // email -> {role, at}; кэшируем только найденную роль
-async function effectiveRole(email, env) {
+async function effectiveAccess(email, env) {
   const fixed = roleFor(email, env);
-  if (fixed) return fixed;
-  const e = String(email).toLowerCase();
-  const hit = roleCache.get(e);
-  if (hit && Date.now() - hit.at < 15_000) return hit.role;
-  const role = await sessionStub(env).userRole(e);
-  if (role) roleCache.set(e, { role, at: Date.now() }); else roleCache.delete(e);
-  return role || null;
+  return fixed ? { role: fixed } : sessionStub(env).userAccess(email);
 }
 
 const asList = d => (Array.isArray(d) ? d : (d && (d.items || d.results)) || []);
@@ -142,6 +134,21 @@ function buildFresh(env, client, key, from, to, all) {
   return p;
 }
 
+function studioBoardView({ days, stale, generatedAt }) {
+  return {
+    stale, generatedAt,
+    days: days.map(({ date, rows }) => ({
+      date,
+      rows: rows.map(({ eventId, eventServiceId, date, start, title, league, service, slots }) => ({
+        eventId, eventServiceId, date, start, title, league, service,
+        slots: { vr: slots.vr.map(({ roleName, lineId, roleId, assignmentId, status, employee }) => ({
+          roleName, lineId, roleId, assignmentId, status, employee: employee ? { name: employee.name } : null,
+        })) },
+      })),
+    })),
+  };
+}
+
 async function route(req, env, url, ctx) {
   const path = url.pathname;
 
@@ -154,29 +161,30 @@ async function route(req, env, url, ctx) {
     } catch (e) {
       throw new HttpError(401, 'Не удалось подтвердить вход через Google');
     }
-    const role = await effectiveRole(who.email, env);
-    if (!role) {
+    const access = await effectiveAccess(who.email, env);
+    if (!access) {
       await sessionStub(env).requestAccess(who.email, who.name);
       throw new HttpError(403, `Запрос на доступ для ${who.email} отправлен администратору. Как только его одобрят, войдите снова.`, { code: 'pending' });
     }
-    const token = await signSession({ email: who.email, name: who.name, role }, env.SESSION_SECRET);
-    return { token, user: { email: who.email, name: who.name, role } };
+    const token = await signSession(who, env.SESSION_SECRET);
+    return { token, user: { ...who, ...access } };
   }
 
   // ---- всё остальное — только с сессией
   const auth = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
   const user = await verifySession(auth, env.SESSION_SECRET);
   if (!user) throw new HttpError(401, 'Сессия истекла — войдите заново');
-  // роль перечитываем на каждый запрос: настройки владельца + принятые в админ-кабинете
-  const role = await effectiveRole(user.email, env);
-  if (!role) throw new HttpError(403, 'Доступ отозван');
-  const need = r => { if (!hasRole(role, r)) throw new HttpError(403, 'Недостаточно прав'); };
+  const access = await effectiveAccess(user.email, env);
+  if (!access) throw new HttpError(403, 'Доступ отозван', { code: 'access_revoked' });
+  const deny = () => { throw new HttpError(403, 'Недостаточно прав', { code: 'access_denied' }); };
+  const admin = () => { if (access.role !== 'admin') deny(); };
+  const need = (section, level) => { if (!hasSection(access, section, level)) deny(); };
 
-  if (path === '/api/me') return { user: { email: user.email, name: user.name, role } };
+  if (path === '/api/me') return { user: { email: user.email, name: user.name, ...access } };
 
   // ---- администрирование сессии BMS
   if (path.startsWith('/api/admin/users')) {
-    need('admin');
+    admin();
     const stub = sessionStub(env);
     if (path === '/api/admin/users' && req.method === 'GET') {
       const l = await stub.usersList();
@@ -184,32 +192,37 @@ async function route(req, env, url, ctx) {
       return { owners: [...new Set(fixed)], users: l.users, requests: l.requests };
     }
     if (req.method === 'POST') {
-      const { email } = await body(req);
+      const data = await body(req);
+      const email = data?.email;
       const e = String(email || '').trim().toLowerCase();
-      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new HttpError(400, 'Некорректный email');
-      if (path === '/api/admin/users/approve') { await stub.userApprove(e, user.email); console.log(JSON.stringify({ evt: 'userApprove', by: user.email, email: e })); }
-      else if (path === '/api/admin/users/reject') await stub.userReject(e);
+      if (e.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new HttpError(400, 'Некорректный email');
+      if (roleFor(e, env)) throw new HttpError(400, 'Доступ этого пользователя задан в настройках сервера');
+      if (path === '/api/admin/users/access') {
+        const grant = parseUserAccess(data);
+        if (!grant) throw new HttpError(400, 'Выберите хотя бы один раздел или права администратора');
+        await stub.userSetAccess(e, grant, user.email);
+        console.log(JSON.stringify({ evt: 'userAccess', by: user.email, email: e, ...grant }));
+      } else if (path === '/api/admin/users/reject') await stub.userReject(e);
       else if (path === '/api/admin/users/remove') { await stub.userRemove(e); console.log(JSON.stringify({ evt: 'userRemove', by: user.email, email: e })); }
       else throw new HttpError(404, 'Не найдено');
-      clearCache();
       return { ok: true };
     }
   }
 
-  if (path === '/api/admin/bms/status') { need('admin'); return sessionStub(env).status(); }
+  if (path === '/api/admin/bms/status') { admin(); return sessionStub(env).status(); }
   if (path === '/api/admin/bms/otp' && req.method === 'POST') {
-    need('admin');
+    admin();
     const { phone } = await body(req);
     return sessionStub(env).requestOtp(normalizePhone(phone));
   }
   if (path === '/api/admin/bms/login' && req.method === 'POST') {
-    need('admin');
+    admin();
     const { phone, code } = await body(req);
     return sessionStub(env).login(normalizePhone(phone), String(code || '').trim(), user.email);
   }
 
   if (path === '/api/admin/fhm' && ['GET', 'POST'].includes(req.method)) {
-    need('admin');
+    admin();
     const stub = sessionStub(env);
     if (req.method === 'GET') return { configured: !!(await stub.fhmConfig()) };
     const data = await body(req);
@@ -225,8 +238,9 @@ async function route(req, env, url, ctx) {
     return { configured: true };
   }
 
-  if (path === '/api/fhm/calendar' && req.method === 'GET') {
-    need('viewer');
+  if (['/api/fhm/calendar', '/api/fhm/schedule'].includes(path) && req.method === 'GET') {
+    const schedule = path === '/api/fhm/schedule';
+    need(schedule ? 'fhm-schedule' : 'fhm-calendar');
     const from = url.searchParams.get('from'), to = url.searchParams.get('to');
     checkRange(from, to);
     const stub = sessionStub(env);
@@ -236,13 +250,18 @@ async function route(req, env, url, ctx) {
       cached(`fhm|${config.revision}|${from}|${to}`, 60_000,
         async () => withCalendarAddresses(await loadFhmCalendar(config.key, from, to),
           venues => stub.fhmVenueAddresses(venues))),
-      stub.fhmCrews(dateRange(from, to)),
+      schedule || hasSection(access, 'fhm-schedule') ? stub.fhmCrews(dateRange(from, to)) : {},
     ]);
+    if (schedule && !hasSection(access, 'fhm-calendar')) {
+      const matches = calendar.matches.map(({ id, date, time, duration, year, venue, venueId, location, status, copy }) =>
+        ({ id, date, time, duration, year, venue, venueId, location, status, copy }));
+      return { matches, crews };
+    }
     return { ...calendar, crews };
   }
 
   if (path === '/api/fhm/crew' && req.method === 'POST') {
-    need('editor');
+    need('fhm-schedule', 'editor');
     const edit = parseFhmCrewEdit(await body(req));
     if (!edit) throw new HttpError(400, 'Некорректные данные бригады');
     checkRange(edit.date, edit.date);
@@ -254,9 +273,11 @@ async function route(req, env, url, ctx) {
   const from = url.searchParams.get('from');
   const to = url.searchParams.get('to');
 
-  if (path === '/api/board') {
-    need('viewer'); checkRange(from, to);
-    const all = url.searchParams.get('all') === '1';
+  if (path === '/api/board' || path === '/api/studios/board') {
+    const studioBoard = path === '/api/studios/board';
+    need(studioBoard ? 'studios' : 'board'); checkRange(from, to);
+    const all = studioBoard || url.searchParams.get('all') === '1';
+    const project = data => studioBoard ? studioBoardView(data) : data;
     const key = `board|${from}|${to}|${all}`;
     if (url.searchParams.get('fresh') !== '1') {
       const snap = await sessionStub(env).snapGet(key);
@@ -265,19 +286,19 @@ async function route(req, env, url, ctx) {
         const stale = snap.at < snap.lw || Date.now() - snap.at > 20_000;   // после записи в BMS или старше 20 с
         if (stale && Date.now() - snap.at > 60_000) {
           // снимок старый — ждём свежий сами; если BMS не отвечает, честно говорим об этом
-          try { return { ...(await buildFresh(env, client, key, from, to, all)), stale: false }; }
-          catch (e) { return { ...board, stale: true, refreshError: String(e.message || e).slice(0, 200) }; }
+          try { return project({ ...(await buildFresh(env, client, key, from, to, all)), stale: false }); }
+          catch (e) { return project({ ...board, stale: true, refreshError: String(e.message || e).slice(0, 200) }); }
         }
         if (stale) ctx.waitUntil(buildFresh(env, client, key, from, to, all).catch(e => console.error('refresh', String(e))));
-        return { ...board, stale };
+        return project({ ...board, stale });
       }
     }
-    return { ...(await buildFresh(env, client, key, from, to, all)), stale: false };
+    return project({ ...(await buildFresh(env, client, key, from, to, all)), stale: false });
   }
 
   if (path === '/api/order') {
     if (req.method === 'POST') {
-      need('editor');
+      need('board', 'editor');
       const b = await body(req);
       if (!ISO.test(b.date || '') || !Array.isArray(b.ids)) throw new HttpError(400, 'Нужны date и ids');
       const clean = arr => arr.map(Number).filter(n => Number.isInteger(n) && n !== 0).slice(0, 300);
@@ -288,12 +309,12 @@ async function route(req, env, url, ctx) {
       await sessionStub(env).orderSet(b.date, ids);
       return { ok: true };
     }
-    need('viewer'); checkRange(from, to);
+    need('board'); checkRange(from, to);
     return { orders: await sessionStub(env).orderGet(from, to) };
   }
 
   if (path === '/api/staff') {
-    need('viewer'); checkRange(from, to);
+    need('board'); checkRange(from, to);
     return cached(`staff|${from}|${to}`, 300_000, async () => {
       const lines = await loadLines(client);
       return buildStaff(await loadSchedule(client, lines, from, to), dateRange(from, to));
@@ -301,7 +322,7 @@ async function route(req, env, url, ctx) {
   }
 
   if (path === '/api/employees') {
-    need('viewer');
+    need('board');
     const date = url.searchParams.get('date');
     const lineId = Number(url.searchParams.get('lineId'));
     if (!ISO.test(date || '') || !lineId) throw new HttpError(400, 'Нужны date и lineId');
@@ -313,7 +334,7 @@ async function route(req, env, url, ctx) {
 
   // ---- справочник ролей (для состава мероприятия-черновика)
   if (path === '/api/lines') {
-    need('viewer');
+    need('board');
     return cached('lines', 3_600_000, async () => ({
       lines: (await loadLines(client)).map(l => ({ id: l.id, name: l.name, group: roleGroupKey(l.name) })),
     }));
@@ -321,20 +342,20 @@ async function route(req, env, url, ctx) {
 
   // ---- мероприятия-черновики
   if (path === '/api/plans' && req.method === 'GET') {
-    need('viewer'); checkRange(from, to);
+    need('board'); checkRange(from, to);
     const st = sessionStub(env);
     const [plans, trips] = await Promise.all([st.plansGet(from, to), st.tripsGet(from, to)]);
     return { plans, trips };
   }
   if (path === '/api/trips' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     if (!/^[ep]\d{1,12}$/.test(String(b.key || '')) || !ISO.test(b.date || '')) throw new HttpError(400, 'Некорректные данные');
     await sessionStub(env).tripSet(String(b.key), b.date, b.on === true, user.name || user.email);
     return { ok: true };
   }
   if (path === '/api/plans' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     const r = sanitizePlan(b);
     if (r.error) throw new HttpError(400, r.error);
@@ -344,7 +365,7 @@ async function route(req, env, url, ctx) {
     return { plan };
   }
   if (path === '/api/plans/delete' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     if (!(Number(b.id) > 0)) throw new HttpError(400, 'Нужен id');
     await sessionStub(env).planDelete(Number(b.id));
@@ -353,12 +374,12 @@ async function route(req, env, url, ctx) {
 
   // ---- СТУДИИ
   if (path === '/api/studios' && req.method === 'GET') {
-    need('viewer'); checkRange(from, to);
+    need('studios'); checkRange(from, to);
     const r = await sessionStub(env).studiosGet(from, to);
     return { ...r, matches: r.matches.filter(m => !m.hidden) };
   }
   if (path === '/api/studios/source') {
-    need('admin');
+    admin();
     const st = sessionStub(env);
     if (req.method === 'POST') {
       const b = await body(req);
@@ -372,11 +393,11 @@ async function route(req, env, url, ctx) {
     return { configured: !!src, url: src ? src.url : '' };
   }
   if (path === '/api/studios/sync' && req.method === 'POST') {
-    need('editor');
+    need('studios', 'editor');
     return syncStudios(env, user.name || user.email);
   }
   if (path === '/api/studios' && req.method === 'POST') {
-    need('editor');
+    need('studios', 'editor');
     const b = await body(req);
     const r = sanitizePatch(b, !b.id);
     if (r.error) throw new HttpError(400, r.error);
@@ -385,14 +406,14 @@ async function route(req, env, url, ctx) {
     return { match: m };
   }
   if (path === '/api/studios/delete' && req.method === 'POST') {
-    need('editor');
+    need('studios', 'editor');
     const b = await body(req);
     if (!(await sessionStub(env).studiosDelete(String(b.id || '')))) throw new HttpError(404, 'Такого матча уже нет');
     return { ok: true };
   }
 
   if (path === '/api/studios/vr' && req.method === 'GET') {
-    need('viewer');
+    need('studios');
     const { stats, at, manual } = await sessionStub(env).vrGet();
     const today = new Date().toISOString().slice(0, 10);
     const vrs = Object.entries(stats).map(([name, e]) => {
@@ -404,7 +425,7 @@ async function route(req, env, url, ctx) {
     return { vrs, at };
   }
   if (path === '/api/studios/vr/label' && req.method === 'POST') {
-    need('admin');
+    admin();
     const b = await body(req);
     const name = String(b.name || '').replace(/\s+/g, ' ').trim().slice(0, 80), label = String(b.label || '');
     if (!name || !VR_LABELS.includes(label)) throw new HttpError(400, 'Некорректные данные');
@@ -412,18 +433,18 @@ async function route(req, env, url, ctx) {
     return { ok: true };
   }
   if (path === '/api/studios/history/sync' && req.method === 'POST') {
-    need('editor');
+    need('studios', 'editor');
     return syncVrHistory(env);
   }
 
   // ---- общий черновик
   if (path === '/api/draft' && req.method === 'GET') {
-    need('viewer');
+    need('board');
     const since = url.searchParams.get('since');
     return sessionStub(env).drafts(since === null ? null : Number(since));
   }
   if (path === '/api/draft' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     const n = k => Number(b[k]);
     if (![n('lineId'), n('employeeId')].every(x => Number.isInteger(x) && x > 0) || !Number.isInteger(n('eventServiceId')) || n('eventServiceId') === 0) throw new HttpError(400, 'Некорректные идентификаторы');
@@ -445,7 +466,7 @@ async function route(req, env, url, ctx) {
     return { ok: true };
   }
   if (path === '/api/draft/delete' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const { keys, all } = await body(req);
     await sessionStub(env).draftDelete(all === true ? '*' : (Array.isArray(keys) ? keys.map(String).slice(0, 500) : []));
     return { ok: true };
@@ -453,7 +474,7 @@ async function route(req, env, url, ctx) {
 
   // «Отправить назначение»: BMS уведомляет сотрудника, статус назначения становится «ждёт ответа»
   if (path === '/api/notify' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(Number).filter(n => Number.isInteger(n) && n > 0))].slice(0, 30);
     if (!ids.length) throw new HttpError(400, 'Нет назначений для отправки');
@@ -468,7 +489,7 @@ async function route(req, env, url, ctx) {
   }
 
   if (path === '/api/assign' && req.method === 'POST') {
-    need('editor');
+    need('board', 'editor');
     const b = await body(req);
     const ids = ['eventServiceId', 'lineId', 'employeeId'].map(k => Number(b[k]));
     if (ids.some(n => !Number.isInteger(n) || n <= 0)) throw new HttpError(400, 'Некорректные идентификаторы');
@@ -521,12 +542,12 @@ async function route(req, env, url, ctx) {
   }
 
   if (path === '/api/rates/missing') {
-    need('viewer'); checkRange(from, to);
+    need('rates'); checkRange(from, to);
     return { missing: findMissingRates(await fetchAssignments(client, from, to)) };
   }
 
   if (path === '/api/rates/fix' && req.method === 'POST') {
-    need('editor');
+    need('rates', 'editor');
     const { from: f, to: t } = await body(req);
     checkRange(f, t);
     // список пересчитываем на сервере — не доверяем тому, что пришло из браузера

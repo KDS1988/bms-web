@@ -9,6 +9,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { bmsFetch } from './bms.js';
 import { mergeDay } from './studios.js';
+import { storedUserAccess } from './auth.js';
 import { fetchCalendarVenueAddress } from './fhm.js';
 
 export const LOGIN_REQUIRED = 'BMS_LOGIN_REQUIRED';
@@ -115,44 +116,53 @@ export class BmsSession extends DurableObject {
     await this.ctx.storage.put({ bv: ((await this.ctx.storage.get('bv')) || 0) + 1, lw: Date.now() });
   }
 
-  // ---- пользователи, принятые администратором (все — с правами admin), и запросы на доступ
-  async userRole(email) {
-    const users = (await this.ctx.storage.get('users')) || {};
-    return users[String(email).toLowerCase()] ? 'admin' : null;
+  // Записи без role созданы до появления прав по разделам.
+  async userAccess(email) {
+    const user = (await this.ctx.storage.get('users'))?.[String(email).toLowerCase()];
+    return storedUserAccess(user);
   }
 
   async requestAccess(email, name) {
     const e = String(email).toLowerCase();
-    const users = (await this.ctx.storage.get('users')) || {};
-    if (users[e]) return;
-    const reqs = (await this.ctx.storage.get('requests')) || {};
-    reqs[e] = { name: String(name || '').slice(0, 120), at: new Date().toISOString() };
-    await this.ctx.storage.put('requests', reqs);
+    await this.ctx.storage.transaction(async txn => {
+      if ((await txn.get('users'))?.[e]) return;
+      const requests = (await txn.get('requests')) || {};
+      requests[e] = { name: String(name || '').slice(0, 120), at: new Date().toISOString() };
+      await txn.put('requests', requests);
+    });
   }
 
   async usersList() {
     return { users: (await this.ctx.storage.get('users')) || {}, requests: (await this.ctx.storage.get('requests')) || {} };
   }
 
-  async userApprove(email, by) {
-    const e = String(email).toLowerCase();
-    const users = (await this.ctx.storage.get('users')) || {};
-    const reqs = (await this.ctx.storage.get('requests')) || {};
-    users[e] = { name: (reqs[e] && reqs[e].name) || '', addedAt: new Date().toISOString(), addedBy: by };
-    delete reqs[e];
-    await this.ctx.storage.put({ users, requests: reqs });
+  async userSetAccess(email, access, by) {
+    await this.ctx.storage.transaction(async txn => {
+      const users = (await txn.get('users')) || {};
+      const requests = (await txn.get('requests')) || {};
+      const { name, addedAt, addedBy } = users[email] || {
+        name: requests[email]?.name || '', addedAt: new Date().toISOString(), addedBy: by,
+      };
+      users[email] = { name, addedAt, addedBy, ...access };
+      delete requests[email];
+      await txn.put({ users, requests });
+    });
   }
 
   async userReject(email) {
-    const reqs = (await this.ctx.storage.get('requests')) || {};
-    delete reqs[String(email).toLowerCase()];
-    await this.ctx.storage.put('requests', reqs);
+    await this.ctx.storage.transaction(async txn => {
+      const requests = (await txn.get('requests')) || {};
+      delete requests[email];
+      await txn.put('requests', requests);
+    });
   }
 
   async userRemove(email) {
-    const users = (await this.ctx.storage.get('users')) || {};
-    delete users[String(email).toLowerCase()];
-    await this.ctx.storage.put('users', users);
+    await this.ctx.storage.transaction(async txn => {
+      const users = (await txn.get('users')) || {};
+      delete users[email];
+      await txn.put('users', users);
+    });
   }
 
   // ---- порядок блоков внутри дня (общий для всех): { 'ГГГГ-ММ-ДД': [eventServiceId…] }

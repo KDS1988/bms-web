@@ -26,7 +26,14 @@
   const pad = n => String(n).padStart(2, '0');
   const iso = d => d.toISOString().slice(0, 10);
   const fmtDay = s => { const d = new Date(s + 'T00:00:00Z'); return `${WD[d.getUTCDay()]} ${s.slice(8)}.${s.slice(5, 7)}`; };
-  const canEdit = () => S.user && (S.user.role === 'editor' || S.user.role === 'admin');
+  const SECTION_ACCESS = ['none', 'viewer', 'editor', 'admin'];
+  const accessLevel = section => S.user?.role === 'scoped' ? S.user.permissions?.[section] : S.user?.role;
+  const canView = section => SECTION_ACCESS.indexOf(accessLevel(section)) >= 1;
+  const canEdit = (section = 'board') => SECTION_ACCESS.indexOf(accessLevel(section)) >= 2;
+  function canOpen(tab) {
+    if (tab === 'fhm') return canView('fhm-calendar') || canView('fhm-schedule');
+    return tab === 'admin' ? S.user?.role === 'admin' : canView(tab);
+  }
   const lower = s => String(s || '').toLowerCase();
   const curMonth = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
   const monthShift = (m, n) => { const [y, mo] = m.split('-').map(Number); const d = new Date(Date.UTC(y, mo - 1 + n, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; };
@@ -70,6 +77,12 @@
     }
     let data = {}; try { data = await r.json(); } catch (e) { /* пусто */ }
     if (r.status === 401 && S.token) { logout(); throw new Error('Сессия истекла — войдите заново'); }
+    if (r.status === 403 && data.code === 'access_revoked' && S.token) {
+      logout();
+      $('loginErr').textContent = data.error;
+      initGoogle();
+    }
+    if (r.status === 403 && data.code === 'access_denied' && S.token) refreshAccess();
     if (!r.ok) { const e = new Error(data.error || ('Ошибка ' + r.status)); e.code = data.code; e.status = r.status; throw e; }
     return data;
   }
@@ -117,6 +130,7 @@
 
   // ---------- вкладки
   function showTab(t) {
+    if (!canOpen(t)) return;
     S.tab = t;
     document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
     document.querySelectorAll('main > .view').forEach(view => { view.hidden = view.id !== 'view-' + t; });
@@ -961,20 +975,20 @@
   }
   function closeModal() { $('modal').hidden = true; }
   function openModal(title, node) { $('mTitle').textContent = title; $('mBody').replaceChildren(node); $('modal').hidden = false; }
-  window.APP = { h, api, toast, S, canEdit, range, fmtDay, closeModal, openModal, setStick };
+  window.APP = { h, api, toast, S, canView, canEdit, range, fmtDay, closeModal, openModal, setStick };
 
   // ---------- ставки
   function renderRates() {
     const m = S.rates.missing;
     $('ratesInfo').textContent = m.length ? `Назначений без ставки: ${m.length}` : 'Все назначения за месяц со ставками ✓';
-    $('ratesFix').disabled = !m.length || !canEdit();
+    $('ratesFix').disabled = !m.length || !canEdit('rates');
     $('ratesOut').replaceChildren(m.length ? h('div', { class: 'tablewrap' }, h('table', null,
       h('thead', null, h('tr', null, ...['Дата', 'Мероприятие', 'Роль', 'Сотрудник'].map(x => h('th', null, x)))),
       h('tbody', null, ...m.map(x => h('tr', null, h('td', null, fmtDay(x.date)), h('td', null, x.title), h('td', null, x.role), h('td', null, x.employee)))))) : '');
     fitGrid();
   }
   async function fixRates() {
-    if (!confirm('Доначислить ставки всем назначениям за месяц?')) return;
+    if (!canEdit('rates') || !confirm('Доначислить ставки всем назначениям за месяц?')) return;
     $('ratesFix').disabled = true;
     try {
       const r = await api('/api/rates/fix', { method: 'POST', body: range() });
@@ -986,9 +1000,61 @@
   // ---------- вход в BMS
   async function usersAct(kind, email, ask) {
     if (ask && !confirm(ask)) return;
-    try { await api('/api/admin/users/' + kind, { method: 'POST', body: { email } }); toast(kind === 'approve' ? 'Доступ выдан: ' + email : 'Готово'); loadUsers(); }
+    try { await api('/api/admin/users/' + kind, { method: 'POST', body: { email } }); toast('Готово'); await refreshAccess(); if (S.tab === 'admin') await loadUsers(); }
     catch (e) { toast(e.message, true); }
   }
+  const permissionSections = [
+    ['board', 'Доска'], ['studios', 'СТУДИИ'], ['fhm-calendar', 'ДХ · Календарь'],
+    ['fhm-schedule', 'ДХ · Расписание'], ['rates', 'Ставки'],
+  ];
+
+  function editUserAccess(email, record, isNew) {
+    const full = h('input', { type: 'checkbox' });
+    full.checked = !isNew && (!record.role || record.role === 'admin');
+    const levels = [['none', 'Нет доступа'], ['viewer', 'Просмотр'], ['editor', 'Редактирование']];
+    const selects = permissionSections.map(([key, label]) => {
+      const options = key === 'fhm-calendar' ? levels.slice(0, 2) : levels;
+      const select = h('select', { 'aria-label': label },
+        options.map(([value, text]) => h('option', { value }, text)));
+      select.value = record?.permissions?.[key] || 'none';
+      return [key, label, select];
+    });
+    const fields = h('div', { class: 'permissions-grid' }, selects.map(([, label, select]) =>
+      h('label', null, h('span', null, label), select)));
+    const update = () => { fields.hidden = full.checked; };
+    full.addEventListener('change', update);
+    update();
+    const save = h('button', { class: 'primary', type: 'submit' }, 'Сохранить права');
+    const error = h('p', { class: 'err', role: 'alert' });
+    const form = h('form', { onsubmit: async event => {
+      event.preventDefault();
+      save.disabled = true;
+      error.textContent = '';
+      try {
+        const permissions = Object.fromEntries(selects.map(([key, , select]) => [key, select.value]));
+        await api('/api/admin/users/access', { method: 'POST', body: {
+          email, role: full.checked ? 'admin' : 'scoped', permissions,
+        } });
+        if ($('newUser').value.trim().toLowerCase() === email) $('newUser').value = '';
+        closeModal();
+        toast('Права сохранены');
+        await refreshAccess();
+        if (S.tab === 'admin') await loadUsers();
+      } catch (e) { error.textContent = e.message; }
+      finally { save.disabled = false; }
+    } },
+    h('p', { class: 'muted' }, email),
+    h('label', null, full, ' Администратор · полный доступ'),
+    fields, h('div', { class: 'form' }, save), error);
+    openModal(isNew ? 'Выдать доступ' : 'Изменить права', form);
+  }
+
+  function permissionSummary(user) {
+    if (!user.role || user.role === 'admin') return 'Администратор';
+    return permissionSections.filter(([key]) => user.permissions?.[key]).map(([key, label]) =>
+      label + (user.permissions[key] === 'editor' ? ' · редактирование' : ' · просмотр')).join(', ');
+  }
+
   async function loadUsers() {
     const d = await api('/api/admin/users');
     const reqs = Object.entries(d.requests || {}), users = Object.entries(d.users || {});
@@ -997,14 +1063,15 @@
     $('usersBox').replaceChildren(
       h('h3', null, 'Запросы на доступ' + (reqs.length ? ` (${reqs.length})` : '')),
       reqs.length ? h('table', { class: 'utable' }, ...reqs.map(([e, r]) => row([r.name || '—', e, fmt(r.at)], [
-        h('button', { class: 'primary', onclick: () => usersAct('approve', e) }, 'Принять (админ)'), ' ',
+        h('button', { class: 'primary', onclick: () => editUserAccess(e, r, true) }, 'Выдать доступ'), ' ',
         h('button', { onclick: () => usersAct('reject', e) }, 'Отклонить')])))
         : h('p', { class: 'muted' }, 'Новых запросов нет.'),
       h('h3', null, 'Пользователи с доступом'),
       h('table', { class: 'utable' },
         ...(d.owners || []).map(e => row(['Владелец', e, ''], [h('span', { class: 'muted' }, 'задан в настройках')])),
-        ...users.map(([e, u]) => row([u.name || '—', e, 'принят ' + fmt(u.addedAt) + (u.addedBy ? ' · ' + u.addedBy : '')],
-          [h('button', { onclick: () => usersAct('remove', e, 'Закрыть доступ для ' + e + '?') }, 'Закрыть доступ')]))));
+        ...users.map(([e, u]) => row([u.name || '—', e, permissionSummary(u)],
+          [h('button', { onclick: () => editUserAccess(e, u, false) }, 'Изменить права'), ' ',
+            h('button', { onclick: () => usersAct('remove', e, 'Закрыть доступ для ' + e + '?') }, 'Закрыть доступ')]))));
   }
   async function loadAdmin() {
     loadUsers().catch(e => toast(e.message, true));
@@ -1029,21 +1096,50 @@
   }
 
   // ---------- старт
+  function applyAccess() {
+    const titles = { admin: 'админ', editor: 'редактор', viewer: 'просмотр' };
+    $('who').textContent = [S.user.name, titles[S.user.role]].filter(Boolean).join(' · ');
+    const tabs = [...document.querySelectorAll('#tabs button')];
+    for (const button of tabs) button.hidden = !canOpen(button.dataset.tab);
+    $('addPlan').hidden = !canEdit('board');
+    window.Studios.applyAccess();
+    window.FhmCalendar?.applyAccess();
+    return tabs.find(button => !button.hidden)?.dataset.tab;
+  }
+
+  let refreshingAccess = false;
+  async function refreshAccess() {
+    if (!S.token || refreshingAccess) return;
+    const token = S.token;
+    refreshingAccess = true;
+    try {
+      const { user } = await api('/api/me');
+      if (token !== S.token || !S.user) return;
+      if (JSON.stringify([user.role, user.permissions]) === JSON.stringify([S.user.role, S.user.permissions])) return;
+      S.user = user;
+      closeModal();
+      const first = applyAccess();
+      if (first) showTab(canOpen(S.tab) ? S.tab : first);
+      else logout();
+    } catch { /* API сам обрабатывает истечение и отзыв доступа. */ }
+    finally { refreshingAccess = false; }
+  }
+
   function start() {
     $('login').hidden = true; $('top').hidden = false;
-    $('who').textContent = `${S.user.name} · ${{ admin: 'админ', editor: 'редактор', viewer: 'просмотр' }[S.user.role]}`;
-    $('tab-admin').hidden = S.user.role !== 'admin';
-    $('addPlan').hidden = !canEdit();
-    window.Studios.init();
     if (!S.month) { try { S.month = sessionStorage.getItem('bms_month'); } catch (e) { /* ok */ } }
     if (!S.month) S.month = curMonth();
-    renderMonths(); showTab('board');
+    window.Studios.init();
+    const first = applyAccess();
+    renderMonths();
+    if (first) showTab(first);
+    else logout();
   }
   function bind() {
     document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
     $('reload').onclick = () => { candCache.clear(); refreshNow = true; reload(); };
     $('prev').onclick = () => setMonth(monthShift(S.month, -1)); $('next').onclick = () => setMonth(monthShift(S.month, 1));
-    $('addUser').onclick = () => { const v = $('newUser').value.trim(); if (v) usersAct('approve', v).then(() => { $('newUser').value = ''; }); };
+    $('addUser').onclick = () => { const v = $('newUser').value.trim().toLowerCase(); if (v) editUserAccess(v, {}, true); };
     const curTheme = () => document.documentElement.getAttribute('data-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
     const paintTheme = () => { $('themeBtn').textContent = curTheme() === 'dark' ? '☀️' : '🌙'; $('themeBtn').title = curTheme() === 'dark' ? 'Включить светлую тему' : 'Включить тёмную тему'; };
     $('themeBtn').onclick = () => { const n = curTheme() === 'dark' ? 'light' : 'dark'; document.documentElement.setAttribute('data-theme', n); try { localStorage.setItem('bms_theme', n); } catch (e) { /* ok */ } paintTheme(); };
@@ -1060,7 +1156,7 @@
     $('addPlan').onclick = () => openPlanModal(null);
     $('scSrcSave').onclick = saveStudiosSrc;
     $('ratesFix').onclick = fixRates; $('draftSend').onclick = sendDraft; $('draftClear').onclick = clearDraft;
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) poll(true); });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { refreshAccess(); poll(true); } });
     window.addEventListener('resize', fitGrid);
     setInterval(poll, 3000);
   }

@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const { h, api, range, fmtDay, S, canEdit, toast } = window.APP;
+  const { h, api, range, fmtDay, S, canView, canEdit, toast } = window.APP;
   const $ = id => document.getElementById(id);
   const STATUS = {
     scheduled: ['Запланирован', ''], live: ['Идёт', 'appointed'], finished: ['Завершён', ''],
@@ -89,7 +89,7 @@
 
   function crewCell(arena, date, [field, label]) {
     const value = crews[date]?.[arena.key]?.[field] || '';
-    const editable = canEdit() && arena.editable;
+    const editable = canEdit('fhm-schedule') && arena.editable;
     return h('td', { class: 'fhm-crew-cell', title: value || null }, editable
       ? h('input', { type: 'text', value, maxlength: 80,
         'aria-label': `${label} · ${arena.name} · ${DATE.format(new Date(date))}`,
@@ -180,6 +180,16 @@
     render();
   }
 
+  function applyAccess() {
+    document.querySelectorAll('[data-fhm-view]').forEach(button => {
+      button.hidden = !canView('fhm-' + button.dataset.fhmView);
+    });
+    if (!canView('fhm-' + view)) {
+      calendar = null;
+      setView(canView('fhm-calendar') ? 'calendar' : 'schedule');
+    }
+  }
+
   function allDays(closed) {
     if (!calendar) return;
     const dates = view === 'schedule' ? Schedule.buildSchedule([], period).dates : calendar.map(match => match.date);
@@ -230,7 +240,8 @@
     $('fhmStatus').textContent = 'Загружаю календарь…';
     $('fhmOut').replaceChildren();
     try {
-      const data = await api('/api/fhm/calendar', { query: period });
+      const path = canView('fhm-calendar') ? '/api/fhm/calendar' : '/api/fhm/schedule';
+      const data = await api(path, { query: period });
       if (current !== request || S.tab !== 'fhm') return;
       calendar = data.matches;
       crews = data.crews || {};
@@ -275,7 +286,7 @@
   }
 
   document.querySelectorAll('[data-fhm-view]').forEach(button => {
-    button.addEventListener('click', () => setView(button.dataset.fhmView));
+    button.addEventListener('click', () => { if (canView('fhm-' + button.dataset.fhmView)) setView(button.dataset.fhmView); });
   });
   $('fhmScheduleDay').addEventListener('change', event => selectScheduleDay(event.currentTarget.value));
   $('fhmScheduleFilter').addEventListener('change', render);
@@ -284,7 +295,7 @@
   $('fhmSearch').addEventListener('input', render);
   $('fhmConfigForm').addEventListener('submit', saveConfig);
   window.FhmCalendar = {
-    load, loadConfig,
+    load, loadConfig, applyAccess,
     clear() {
       request++;
       calendar = null;

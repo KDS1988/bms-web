@@ -2,6 +2,8 @@
 (function () {
   const A = window.APP, C = window.StudiosCore;
   const { h, api, toast, S } = A;
+  const canEdit = () => A.canEdit('studios');
+  const canSendVr = () => canEdit() && A.canEdit('board');
   const ST = { matches: [], configured: true, sync: null, studio: '', date: '', q: '', loaded: false, pause: 15, cap: 1, tol: 0, onlyConf: false };
   try { const s = JSON.parse(localStorage.getItem('bms_studios_cfg') || '{}'); ['pause', 'cap', 'tol'].forEach(k => { if (Number.isFinite(s[k])) ST[k] = s[k]; }); } catch (e) { /* ok */ }
   const saveCfg = () => { try { localStorage.setItem('bms_studios_cfg', JSON.stringify({ pause: ST.pause, cap: ST.cap, tol: ST.tol })); } catch (e) { /* ok */ } };
@@ -58,7 +60,7 @@
   async function loadBms(fresh) {
     const my = ++bmsReq, month = S.month;
     try {
-      const d = await api('/api/board', { query: { ...A.range(), all: '1', ...(fresh ? { fresh: '1' } : {}) } });
+      const d = await api(A.canView('board') ? '/api/board' : '/api/studios/board', { query: { ...A.range(), all: '1', ...(fresh ? { fresh: '1' } : {}) } });
       if (my !== bmsReq || month !== S.month) return;
       const rows = d.days.flatMap(x => x.rows);
       bms = { rows, byId: new Map(rows.map(r => [r.eventServiceId, r])), at: d.generatedAt || null, stale: !!d.stale }; bmsFail = false; bmsErr = '';
@@ -129,7 +131,7 @@
   function setPick(v, date) { pick = C.isRestream({ vr: v }) ? '' : v || ''; pickDate = pick ? date : ''; applyPick(); }
 
   function cell(m, key, o = {}) {
-    const can = A.canEdit();
+    const can = canEdit();
     const dr = !m[key] && (key === 'pc' ? draftPc[m.id] : key === 'vr' ? draftVr[m.id] : '');
     const vrName = key === 'vr' ? (m.vr || dr) : '';
     const lab = vrName && vrInfo.vrs[vrName] ? vrInfo.vrs[vrName].label : '';
@@ -162,8 +164,8 @@
     return { text, cls, act: st.code === 'declined' ? 'replace' : null, st, link: l };
   }
   function accCell(m) {
-    const a = accOf(m), can = A.canEdit(), l = a.link;
-    const btn = can && a.act ? h('button', { class: 'sc-send', title: (a.act === 'replace' ? 'Назначить этого ВР вместо текущего' : 'Назначить ВР в BMS') + ' — серым, со ставкой, допуслугами и антенкой. Уведомление отправит менеджер из BMS', onclick: () => sendVr(m) }, '→ BMS') : null;
+    const a = accOf(m), can = canEdit(), l = a.link;
+    const btn = canSendVr() && a.act ? h('button', { class: 'sc-send', title: (a.act === 'replace' ? 'Назначить этого ВР вместо текущего' : 'Назначить ВР в BMS') + ' — серым, со ставкой, допуслугами и антенкой. Уведомление отправит менеджер из BMS', onclick: () => sendVr(m) }, '→ BMS') : null;
     const transit = C.isRestream(m);
     const text = transit || l.id ? a.text : (bms.rows.length ? (m.eventId ? `ID ${m.eventId} нет в BMS` : 'нет ID в таблице') : (bmsFail ? 'BMS не загрузилась' : '…'));
     const go = l.id ? h('a', { href: BMS_URL(l.id), target: '_blank', rel: 'noopener', class: 'sc-go', title: (l.how === 'sheet' ? 'По ID мероприятия из таблицы: ' : '') + (l.row ? `${l.row.title} (${l.row.start})` : 'ID ' + l.id) + ' — открыть в BMS' }, '↗') : null;
@@ -207,6 +209,7 @@
   }
 
   async function sendVr(m, silent) {
+    if (!canSendVr()) return { ok: false, why: 'Для назначения нужно редактирование доски' };
     const a = accOf(m), l = a.link;
     if (!l.row || !a.act || !a.st || !a.st.slot) { if (!silent) toast('Нет мероприятия BMS или места ВР', true); return { ok: false, why: 'нет мероприятия / места ВР' }; }
     const slot = a.st.slot, row = a.st.row || l.row;
@@ -228,6 +231,7 @@
     } catch (e) { if (!silent) toast(e.message, true); return { ok: false, why: e.message }; }
   }
   async function sendVrs() {
+    if (!canSendVr()) return;
     const list = targetList().filter(m => C.needsVr(m) && m.vr && accOf(m).act);
     if (!list.length) { toast('Нечего отправлять: нет матчей с ВР, которого ещё нет в BMS'); return; }
     const sample = list.slice(0, 10).map(m => `${A.fmtDay(m.date)} ${m.start} ${m.project} — ${m.vr}`).join('\n') + (list.length > 10 ? `\n…и ещё ${list.length - 10}` : '');
@@ -238,14 +242,14 @@
       const r = await sendVr(m, true);
       report.push([r.ok ? 'ok' : 'err', `${A.fmtDay(m.date)} ${m.start} · ${m.project} ${m.t1} · ${m.vr}` + (r.ok ? (r.note ? ' — ' + r.note : '') : ' — ' + r.why)]);
     }
-    btn.disabled = !A.canEdit(); btn.textContent = '→ ВР в BMS';
+    btn.disabled = !canSendVr(); btn.textContent = '→ ВР в BMS';
     const okN = report.filter(x => x[0] === 'ok').length;
     A.openModal(`Готово: назначено в BMS ${okN}, ошибок ${report.length - okN}`, h('div', null, report.map(([t, txt]) => h('div', { class: 'rep ' + t }, t === 'ok' ? '✓ ' : '✗ ', txt))));
     await loadBms();
   }
 
   function statusCell(m) {
-    const sel = h('select', { class: 'sc-in', disabled: !A.canEdit(), onchange: ev => save(m, { status: ev.target.value }) },
+    const sel = h('select', { class: 'sc-in', disabled: !canEdit(), onchange: ev => save(m, { status: ev.target.value }) },
       STATUSES.map(s => h('option', { value: s, selected: s === m.status }, s || '—')));
     return h('td', null, sel);
   }
@@ -272,7 +276,7 @@
         cell(m, 'project', { cls: 'w140' }), cell(m, 't1', { cls: 'w160' }), cell(m, 't2', { cls: 'w100' }),
         cell(m, 'vr', { list: 'sc-vrs', cls: 'w130' }), accCell(m), cell(m, 'comm', { cls: 'w110' }), cell(m, 'tri', { cls: 'w50' }),
         cell(m, 'comment', { cls: 'w140' }), cell(m, 'scomment', { cls: 'w140' }),
-        h('td', { class: 'sc-pad' }, A.canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
+        h('td', { class: 'sc-pad' }, canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
     });
     if (isCol) return h('div', { class: 'sc-day' }, head);
@@ -372,7 +376,7 @@
       body.replaceChildren(
         h('p', { class: 'muted' }, vrInfo.at ? `История обновлена: ${String(vrInfo.at).slice(0, 16).replace('T', ' ')} UTC. ` : 'История ещё не загружена. ',
           'Авто-метки: «новичок» — меньше 20 выполненных матчей или первый матч менее 45 дней назад; «нестабильный» — не меньше 10% матчей с проблемами (и не меньше 3); остальные — «опытный». Ручная метка админа главнее.'),
-        h('div', { class: 'form' }, h('button', { class: 'primary', disabled: !A.canEdit(), onclick: async ev => {
+        h('div', { class: 'form' }, h('button', { class: 'primary', disabled: !canEdit(), onclick: async ev => {
           ev.target.disabled = true; ev.target.textContent = 'Читаю историю…';
           try { const r = await api('/api/studios/history/sync', { method: 'POST', body: {} }); toast(`История: строк ${r.rows}, ВР ${r.vrs}`); vrInfo.tried = false; await loadVr(); draw(); }
           catch (e) { toast(e.message, true); ev.target.disabled = false; ev.target.textContent = 'Обновить историю'; }
@@ -405,7 +409,7 @@
       syncMsg = { ok: false, text: 'Не удалось прочитать таблицу: ' + e.message };
       toast(syncMsg.text, true);
     }
-    btn.disabled = !A.canEdit(); btn.textContent = '⟳ Из таблицы';
+    btn.disabled = !canEdit(); btn.textContent = '⟳ Из таблицы';
     render();
   }
 
@@ -425,6 +429,7 @@
 
   function init() {
     const bar = $('scBar');
+    if ($('scAuto')) return;
     const opt = (arr, cur, fmt) => arr.map(v => h('option', { value: v, selected: v === cur }, fmt(v)));
     bar.append(
       h('select', { id: 'scStudio', onchange: e => { ST.studio = e.target.value; render(); } }),
@@ -446,10 +451,14 @@
       h('button', { id: 'scExpand', title: 'Развернуть все дни', onclick: () => { collapsed.clear(); saveCol(); render(); } }, '⊞ Развернуть все'),
       h('button', { id: 'scAdd', onclick: addModal }, '＋ Матч'),
       h('button', { id: 'scSync', class: 'primary', onclick: sync, title: 'Перечитать лист «ВНОСИТЬ СЮДА!!!»' }, '⟳ Из таблицы'));
-    $('scAdd').disabled = $('scSync').disabled = $('scAuto').disabled = $('scAutoVr').disabled = $('scSendVr').disabled = !A.canEdit();
     bar.after(h('div', { id: 'scDraft', class: 'sc-draftbar', hidden: true }));
     setInterval(() => { if (S.tab === 'studios' && !document.hidden && !document.activeElement.classList.contains('sc-in')) load().catch(() => {}); }, 20000);
   }
 
-  window.Studios = { load, render, init };
+  function applyAccess() {
+    for (const id of ['scAdd', 'scSync', 'scAuto', 'scAutoVr']) $(id).disabled = !canEdit();
+    $('scSendVr').hidden = !canSendVr();
+  }
+
+  window.Studios = { load, render, init, applyAccess };
 })();

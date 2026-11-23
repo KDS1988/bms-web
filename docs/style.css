@@ -308,3 +308,7 @@ tr.sc-vrbad td.sc-vrtd { background: rgba(243, 156, 18, .28); }
 .fhm-sort span{opacity:.55}
 .fhm-schedule th[aria-sort] .fhm-sort span{opacity:1}
 .fhm-schedule-days th.fhm-selected-day{box-shadow:inset 0 -3px var(--acc)}
+
+.permissions-grid{display:grid;gap:8px;margin:12px 0}
+.permissions-grid label{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:center}
+.permissions-grid select{width:100%}
