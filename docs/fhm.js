@@ -35,6 +35,10 @@
     }, h('span', { 'aria-hidden': 'true' }, closed ? '▸' : '▾'), ' ', text);
   }
 
+  function bmsIdFor(match) {
+    return bmsIds[match.copy ? `${match.id}:2` : match.id];
+  }
+
   function calendarContent(matches) {
     const days = new Map();
     for (const match of matches) {
@@ -44,7 +48,7 @@
     return [...days].map(([date, items]) => {
       const rows = collapsed.calendar.has(date) ? null : items.map(match => {
         const [label, cls] = STATUS[match.status] || ['—', ''];
-        const years = match.year || [...new Set([match.homeYear, match.awayYear].filter(Boolean))].join(' / ');
+        const years = match.ageGroup || match.year || [...new Set([match.homeYear, match.awayYear].filter(Boolean))].join(' / ');
         const title = match.home || match.away ? (match.home || '—') + ' - ' + (match.away || '—') : '—';
         return h('tr', null,
           h('td', { title: 'Московское время' }, match.time || '—'),
@@ -55,7 +59,7 @@
           h('td', null, match.venue || '—'),
           h('td', null, match.location || '—'),
           h('td', null, h('span', { class: 'chip ' + cls }, label)),
-          h('td', null, bmsIds[match.id] || '—'));
+          h('td', null, bmsIdFor(match) || '—'));
       });
       return h('section', { class: 'fhm-day' },
         dayButton(date, `${dayLabel(date)} · матчей: ${items.length}`),
@@ -209,7 +213,7 @@
   function render() {
     if (!calendar) return;
     const query = $('fhmSearch').value.trim().toLocaleLowerCase('ru');
-    const matches = query ? calendar.filter(match => [match.home, match.away, match.venue, match.group, match.tour, match.location, match.year, bmsIds[match.id]]
+    const matches = query ? calendar.filter(match => [match.home, match.away, match.venue, match.group, match.tour, match.location, match.ageGroup, match.year, bmsIdFor(match)]
       .some(value => String(value ?? '').toLocaleLowerCase('ru').includes(query))) : calendar;
     const out = $('fhmOut');
     const schedule = view === 'schedule' ? Schedule.buildSchedule(matches, period) : null;

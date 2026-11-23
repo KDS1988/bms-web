@@ -167,3 +167,35 @@ test('ДХ читает все страницы списка мероприят�
   assert.deepEqual(calls.map(({ path, query }) => [path, query.page, query.date__gte, query.date__lte]),
     [1, 2, 3].map(pageNumber => ['projects/event/list', pageNumber, from, to]));
 });
+
+test('ДХ: название арены различает ID 18219 и 18220 при одинаковом описании', () => {
+  const row = { id: 24360, date: '2026-11-22', time: '09:15', year: 2017,
+    home: 'Снежные барсы', away: 'Запад - Ястребы', venue: 'ЛЦ Снежные барсы' };
+  const copy = { ...row, copy: true, venue: 'ЛЦ Снежные барсы_2' };
+  const event = { date: row.date, league: { short_name: 'ФХМ' },
+    event_description: '09:15, 2017, Снежные барсы - Запад - Ястребы' };
+  const regular = { ...event, id: 18219, additional_info: 'ЛЦ «Снежные барсы»_2017' };
+  const second = { ...event, id: 18220, additional_info: 'ЛЦ «Снежные барсы»_2_2017' };
+  assert.deepEqual(matchFhmBmsIds([row, copy], [
+    second, regular, { ...event, id: 18221, additional_info: 'Другая арена' },
+  ]), { 24360: 18219, '24360:2': 18220 });
+  assert.deepEqual(matchFhmBmsIds([row, copy], [second]), { '24360:2': 18220 });
+  assert.deepEqual(matchFhmBmsIds([row, copy], [regular]), { 24360: 18219 });
+  assert.deepEqual(matchFhmBmsIds([row, copy], [regular, { ...regular, id: 18222 }]), {});
+});
+
+test('ДХ: юниоры в сохранённом календаре выводятся как возрастная группа и сопоставляются с БМС', async () => {
+  const row = { id: 321, date: from, time: '17:30', year: null,
+    home: 'Спартак Юниоры', away: 'Технопул Юниоры', homeYear: 2008, awayYear: 2009 };
+  const { matches } = await withCalendarAddresses({ matches: [row] }, async () => ({}));
+  assert.deepEqual(matches.map(({ home, away, ageGroup }) => [home, away, ageGroup]), [
+    ['Спартак', 'Технопул', 'Юниоры'],
+  ]);
+  const event = { id: 18250, date: row.date, league: { short_name: 'ФХМ' } };
+  assert.deepEqual(matchFhmBmsIds([row], [
+    { ...event, event_description: '17:30, Юниоры, Спартак - Технопул' },
+  ]), { 321: 18250 });
+  assert.deepEqual(matchFhmBmsIds([row], [
+    { ...event, event_description: '17:30, 2008, Спартак Юниоры - Технопул Юниоры' },
+  ]), { 321: 18250 });
+});

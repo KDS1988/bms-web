@@ -68,40 +68,77 @@ function isFhmLeague(league) {
     /(?:^|[^а-яё])фхм(?:$|[^а-яё])|федерация хоккея москвы/iu.test(String(name || '')));
 }
 
-const matchKey = (date, time, year, home, away) => [date, time, year, teamKey(home), teamKey(away)].join('|');
+const juniorsSuffix = /(?:^|\s+)\(?юниоры\)?$/iu;
+
+function cleanJuniorTeam(name, year) {
+  return calendarTeamName({ fullName: String(name || '').trim().replace(juniorsSuffix, ''), year });
+}
+
+function juniorTeams(row) {
+  if (![row.home, row.away].some(name => juniorsSuffix.test(String(name || '').trim()))) return null;
+  return {
+    home: cleanJuniorTeam(row.home, row.homeYear),
+    away: cleanJuniorTeam(row.away, row.awayYear),
+    ageGroup: 'Юниоры',
+  };
+}
+
+const matchKey = (date, time, age, home, away) => [date, time, String(age).toLowerCase(), teamKey(home), teamKey(away)].join('|');
+const rowKey = row => row.copy ? `${row.id}:2` : String(row.id);
+
+const copiedArena = /_2(?=$|[\s_()])/u;
+function arenaKey(name) {
+  return teamKey(String(name || '').split(/\s+\([^)]*,[^)]*\)\s*$/u)[0]
+    .replace(copiedArena, '').replace(/_20\d{2}$/u, ''));
+}
 
 export function matchFhmBmsIds(rows, events) {
   const calendar = new Map(), candidates = new Map();
   for (const row of rows) {
-    if (row.copy || !row.date || !row.time || !row.year || !row.home || !row.away) continue;
-    const key = matchKey(row.date, row.time, row.year, row.home, row.away);
-    if (!calendar.has(key)) calendar.set(key, new Set());
-    calendar.get(key).add(row.id);
+    if (!row.date || !row.time || !row.home || !row.away) continue;
+    const junior = juniorTeams(row);
+    const { home, away } = junior || row;
+    const ages = junior ? new Set([junior.ageGroup, row.homeYear, row.awayYear, row.year]) : [row.year];
+    for (const age of ages) {
+      if (!age) continue;
+      const key = matchKey(row.date, row.time, age, home, away);
+      if (!calendar.has(key)) calendar.set(key, []);
+      calendar.get(key).push(row);
+    }
   }
   for (const event of events) {
     const id = Number(event?.id);
     if (!Number.isSafeInteger(id) || id <= 0 || !event.date || !isFhmLeague(event.league)) continue;
+    const arenas = [event.additional_info, event.location?.name, event.venue].filter(value => typeof value === 'string' && value);
+    const copy = arenas.some(name => copiedArena.test(name));
+    const arenaNames = new Set(arenas.map(arenaKey).filter(Boolean));
     for (const line of String(event.event_description || '').split(/\r?\n|;/)) {
-      const parts = /^\s*([01]?\d|2[0-3]):([0-5]\d)\s*,\s*(\d{4})\s*,\s*(.+?)\s*$/.exec(line);
+      const parts = /^\s*([01]?\d|2[0-3]):([0-5]\d)\s*,\s*(\d{4}|юниоры)\s*,\s*(.+?)\s*$/iu.exec(line);
       if (!parts) continue;
-      const [, hour, minute, year, teams] = parts;
+      const [, hour, minute, age, teams] = parts;
       const time = `${hour.padStart(2, '0')}:${minute}`;
-      const matched = new Set();
-      // Перебираем разделители: пробелы вокруг дефиса бывают и внутри названия клуба.
+      const matched = new Map();
+      // Пробелы вокруг дефиса бывают и внутри названия клуба.
       for (const separator of teams.matchAll(/\s+[-–—]\s+/g)) {
-        const home = calendarTeamName({ fullName: teams.slice(0, separator.index), year });
-        const away = calendarTeamName({ fullName: teams.slice(separator.index + separator[0].length), year });
-        const ids = calendar.get(matchKey(event.date, time, year, home, away));
-        for (const rowId of ids || []) matched.add(rowId);
+        const home = cleanJuniorTeam(teams.slice(0, separator.index), age);
+        const away = cleanJuniorTeam(teams.slice(separator.index + separator[0].length), age);
+        const key = matchKey(event.date, time, age, home, away);
+        for (const row of calendar.get(key) || []) {
+          if (!!row.copy === copy) matched.set(rowKey(row), row);
+        }
       }
-      if (matched.size !== 1) continue;
-      const [rowId] = matched;
-      if (!candidates.has(rowId)) candidates.set(rowId, new Set());
-      candidates.get(rowId).add(id);
+      const exactArena = [...matched].filter(([, row]) => arenaNames.has(arenaKey(row.venue)));
+      const unique = exactArena.length === 1 ? exactArena[0] : matched.size === 1 ? matched.entries().next().value : null;
+      if (!unique) continue;
+      const [key] = unique;
+      if (!candidates.has(key)) candidates.set(key, { exact: new Set(), other: new Set() });
+      candidates.get(key)[exactArena.length === 1 ? 'exact' : 'other'].add(id);
     }
   }
-  return Object.fromEntries([...candidates].flatMap(([rowId, ids]) =>
-    ids.size === 1 ? [[rowId, ids.values().next().value]] : []));
+  return Object.fromEntries([...candidates].flatMap(([key, { exact, other }]) => {
+    const ids = exact.size ? exact : other;
+    return ids.size === 1 ? [[key, ids.values().next().value]] : [];
+  }));
 }
 
 export async function loadFhmCalendar(key, from, to, { progress, pageInterval = 0 } = {}) {
@@ -221,6 +258,6 @@ export async function withCalendarAddresses(calendar, getAddresses) {
     }));
   }
   return { matches: calendar.matches.map(row => ({
-    ...row, location: row.location || addresses[row.venueId] || '',
+    ...row, ...juniorTeams(row), location: row.location || addresses[row.venueId] || '',
   })) };
 }
