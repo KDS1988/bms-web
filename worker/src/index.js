@@ -5,7 +5,7 @@
 import { BmsClient, fetchAssignments, fetchEvents, assignEmployee, updateAssignment, VR_LINE_NAME } from './bms.js';
 import { buildBoard, roleGroupKey } from './board.js';
 import { sanitizePlan } from './plans.js';
-import { parseSourceRow, sanitizePatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
+import { parseSourceRow, sanitizePatch, isVisibleStudioMatch, buildVrStats, autoLabel, VR_LABELS } from './studios.js';
 import { buildStaff, buildCandidates, buildCandidatesFromList, dateRange } from './staff.js';
 import { findMissingRates, fixRates } from './rates.js';
 import { matchFhmBmsIds, parseFhmCrewEdit, withCalendarAddresses } from './fhm.js';
@@ -406,7 +406,7 @@ async function route(req, env, url, ctx) {
   if (path === '/api/studios' && req.method === 'GET') {
     need('studios'); checkRange(from, to);
     const r = await sessionStub(env).studiosGet(from, to);
-    return { ...r, matches: r.matches.filter(m => !m.hidden) };
+    return { ...r, matches: r.matches.filter(isVisibleStudioMatch) };
   }
   if (path === '/api/studios/source') {
     admin();

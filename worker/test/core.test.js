@@ -312,9 +312,9 @@ test('BMS: отправка назначения — тело простым т�
   assert.equal(calls[0][1].headers['content-type'], 'application/x-www-form-urlencoded');
 });
 
-import { parseSourceRow, sanitizePatch, mergeDay, matchKey, repairStudiosNovember28 } from '../src/studios.js';
+import { parseSourceRow, sanitizePatch, isVisibleStudioMatch, mergeDay, matchKey, repairStudiosNovember28 } from '../src/studios.js';
 test('студии: разбор строки источника и слияние с сохранением правок', () => {
-  const m = parseSourceRow({ studio: 'Калужская', pc: '01', date: '2026-03-01', start: '2:55', end: '4:30', project: 'Рестрим КП Беларусь', t1: 'WTA', t2: '', vr: 'Кармен Клещевич', comm1: '', comm2: '' });
+  const m = parseSourceRow({ studio: 'Калужская', pc: '01', date: '2026-03-01', start: '2:55', evStart: '3:00', end: '4:30', project: 'Рестрим КП Беларусь', t1: 'WTA', t2: '', vr: 'Кармен Клещевич', comm1: '', comm2: '' });
   assert.equal(m.start, '02:55'); assert.equal(m.vr, 'Кармен Клещевич');
   assert.equal(parseSourceRow({ date: '', start: '1:00', end: '2:00' }), null);
   const k = matchKey(m);
@@ -330,30 +330,36 @@ test('студии: разбор строки источника и слияни
   assert.equal(sanitizePatch({ pc: ' 03 ' }).patch.pc, '03');
 });
 
-test('студии 28 ноября: новые ВР из источника и скрытие только двух лишних строк НСФЛ', () => {
+test('студии: заготовки без старта события исключаются из импорта и выдачи', () => {
+  const base = { date: '2026-12-06', project: 'НСФЛ', start: '23:50', end: '02:00', eid: 17544 };
+  assert.equal(parseSourceRow({ ...base, evStart: '' }), null);
+  assert.equal(parseSourceRow({ ...base, project: 'Лига PARI', start: '23:45', end: '' }), null);
+  assert.equal(parseSourceRow({ ...base, evStart: '24:00' }), null);
+  const confirmed = parseSourceRow({ ...base, evStart: '0:00' });
+  assert.equal(confirmed.evStart, '00:00');
+  assert.equal(confirmed.start, '23:50');
+  assert.equal(confirmed.end, '02:00');
+  assert.equal(parseSourceRow({ ...base, evStart: '11:00', start: '', end: '' }).end, '13:00');
+  const old = mergeDay([], [{ ...confirmed, evStart: '' }])[0];
+  const [retained] = mergeDay([{ ...old, ov: { pc: true } }], []);
+  assert.ok(!isVisibleStudioMatch(retained));
+  assert.ok(isVisibleStudioMatch({ ...old, manual: true }));
+  assert.ok(isVisibleStudioMatch({ ...old, evStart: undefined })); // старый формат без отдельного поля
+  assert.deepEqual(mergeDay([retained], [confirmed]).filter(isVisibleStudioMatch).map(m => m.eventId), [17544]);
+});
+
+test('студии 28 ноября: ВР из источника заполняет только пустые назначения', () => {
   const date = '2026-11-28';
   const khl = [17136, 17137, 17138, 17139].map(eid => parseSourceRow({
-    date, studio: 'Коломенская_ПАК', project: 'КХЛ_ПАК', start: '16:45', end: '19:30',
+    date, studio: 'Коломенская_ПАК', project: 'КХЛ_ПАК', start: '16:45', evStart: '17:00', end: '19:30',
     t1: `Команда ${eid}`, eid, vr: 'Дмитрий Морозов',
   }));
-  const nsfl = { date, studio: 'Калужская', project: 'НСФЛ', t1: 'Ростов-на-Дону' };
-  const extra = parseSourceRow({ ...nsfl, start: '23:50', end: '02:00' });
-  const first = parseSourceRow({ ...nsfl, start: '10:50', end: '13:00', eid: 17540 });
-  const second = parseSourceRow({ ...nsfl, start: '13:50', end: '16:00', eid: 17541 });
-  const incoming = [...khl, first, second];
-  const existing = mergeDay([], [...incoming, extra]).map(m => {
+  const existing = mergeDay([], khl).map(m => {
     if (m.eventId === 17136) return { ...m, vr: 'Иван Иванов', ov: { vr: true } };
-    if (m.project === 'КХЛ_ПАК') return { ...m, vr: '', ov: { vr: true, pc: true } };
-    if (m.start === '23:50') return { ...m, ov: { bmsId: true } };
-    return m;
+    return { ...m, vr: '', ov: { vr: true, pc: true } };
   });
-  existing.push({ ...extra, id: 'm1', manual: true });
-  assert.equal(repairStudiosNovember28(existing, incoming.slice(1)), null);
-  assert.equal(repairStudiosNovember28(existing, [...incoming, extra]), null);
-  const corrected = repairStudiosNovember28(existing, incoming);
-  const merged = mergeDay(corrected, incoming);
-  assert.deepEqual(merged.filter(m => m.hidden).map(m => m.start), ['23:50', '23:50']);
-  assert.deepEqual(merged.filter(m => m.project === 'НСФЛ' && !m.hidden).map(m => m.eventId), [17540, 17541]);
+  assert.equal(repairStudiosNovember28(existing, khl.slice(1)), null);
+  const merged = mergeDay(repairStudiosNovember28(existing, khl), khl);
   assert.equal(merged.find(m => m.eventId === 17136).vr, 'Иван Иванов');
   for (const m of merged.filter(m => m.eventId >= 17137 && m.eventId <= 17139)) {
     assert.equal(m.vr, 'Дмитрий Морозов');
@@ -374,7 +380,7 @@ test('ВР: статистика и автометки', () => {
 });
 
 test('студии: ID мероприятия BMS из последнего столбца', () => {
-  const base = { studio: 'К', pc: '1', date: '2026-10-30', start: '17:45', end: '20:30', project: 'КХЛ_ПАК', t1: 'Лада', t2: '' };
+  const base = { studio: 'К', pc: '1', date: '2026-10-30', start: '17:45', evStart: '18:00', end: '20:30', project: 'КХЛ_ПАК', t1: 'Лада', t2: '' };
   assert.equal(parseSourceRow({ ...base, eid: '15901' }).eventId, 15901);
   assert.equal(parseSourceRow({ ...base, eid: '-' }).eventId, null);
   assert.equal(parseSourceRow({ ...base }).eventId, null);

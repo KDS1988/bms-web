@@ -4,7 +4,7 @@
  * Строка источника приходит из Apps Script уже разобранной (см. apps-script/studios-export.gs).
  */
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^\d{1,2}:\d{2}$/;
+const TIME = /^(?:[01]?\d|2[0-3]):[0-5]\d$/;
 
 export const STATUSES = ['', 'запланировано', 'выполнено', 'отмена', 'проблемы в студии', 'проблемы на площадке'];
 /** Поля, которые правятся на доске (после правки синхронизация их не затирает). */
@@ -18,18 +18,26 @@ const str = (v, max = 200) => String(v == null ? '' : v).replace(/\s+/g, ' ').tr
 /** Строка из Apps Script → матч. null — строка не годится (нет даты/времени). */
 export function parseSourceRow(r) {
   const date = str(r.date, 10);
-  let start = fmtTime(str(r.start, 8)), end = fmtTime(str(r.end, 8));
-  if (!start) start = fmtTime(str(r.evStart, 8));
-  if (!ISO.test(date) || !start) return null;
+  const eventTime = str(r.evStart, 8);
+  // Без старта события формулы листа рассчитывают эфир от полуночи.
+  if (!ISO.test(date) || !TIME.test(eventTime)) return null;
+  const evStart = fmtTime(eventTime);
+  const start = fmtTime(str(r.start, 8)) || evStart;
+  let end = fmtTime(str(r.end, 8));
   if (!end) end = fmtTime(`${String(Math.min(23, Math.floor(toMin(start) / 60) + 2)).padStart(2, '0')}:${start.slice(3)}`);   // конец не заполнен — +2 ч
   const vrName = str(r.vr);
   const comm = [str(r.comm1), str(r.comm2)].filter(x => x && x !== '-').join(', ');
   return {
-    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end, evStart: fmtTime(str(r.evStart, 8)), eventId: /^\d{3,9}$/.test(str(r.eid, 12)) ? Number(str(r.eid, 12)) : null,
+    studio: str(r.studio, 40), pc: str(r.pc, 20), date, start, end, evStart, eventId: /^\d{3,9}$/.test(str(r.eid, 12)) ? Number(str(r.eid, 12)) : null,
     project: str(r.project, 120), t1: str(r.t1, 160), t2: str(r.t2, 160),
     cabin: ['да', 'нет'].includes(str(r.cabin, 10).toLowerCase()) ? str(r.cabin, 10).toLowerCase() : '',
     vr: vrName === '-' ? '' : vrName, comm, status: '', support: '', engineer: '', tri: '', comment: '', scomment: '',
   };
+}
+
+/** Ранее импортированные заготовки могли сохраниться вместе с ручными правками. */
+export function isVisibleStudioMatch(m) {
+  return !m.hidden && (m.manual || m.evStart !== '');
 }
 
 export function matchKey(m) { return [m.date, m.start, m.end, m.project, m.t1, m.t2].join('|'); }
@@ -41,13 +49,10 @@ export function repairStudiosNovember28(existing, incoming) {
   const khlIds = new Set([17136, 17137, 17138, 17139]);
   const khl = incoming.filter(m => m.project === 'КХЛ_ПАК' && khlIds.has(m.eventId) && m.vr);
   const assigned = new Set(khl.map(m => m.eventId));
-  const extra = m => m.project === 'НСФЛ' && m.studio === 'Калужская' &&
-    m.t1 === 'Ростов-на-Дону' && !m.t2 && m.start === '23:50' && m.end === '02:00';
-  if (assigned.size !== khlIds.size || incoming.some(extra)) return null;
+  if (assigned.size !== khlIds.size) return null;
 
   const khlKeys = new Set(khl.map(matchKey));
   return existing.map(m => {
-    if (extra(m)) return { ...m, hidden: true, ov: { ...m.ov, hidden: true } };
     if (!m.manual && khlKeys.has(m.k) && !m.vr && m.ov?.vr) {
       const ov = { ...m.ov };
       delete ov.vr;
