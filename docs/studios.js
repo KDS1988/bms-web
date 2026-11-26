@@ -27,9 +27,9 @@
   try { sorts = JSON.parse(sessionStorage.getItem('bms_sc_sorts') || '{}'); } catch (e) { /* ok */ }
   const DEF_SORT = { key: 'start', dir: 1 };
   const sortOf = date => sorts[date] || DEF_SORT;
+  const isKhlPak = m => /^КХЛ[\s_]+ПАК$/iu.test(String(m.project || '').trim());
   const COLS = [['status', 'Статус'], ['support', 'Саппорт'], ['engineer', 'Инженер'], ['studio', 'Студия'], ['pc', '№ ПК'], ['start', 'Начало'], ['end', 'Конец'], ['project', 'Проект'], ['t1', 'Команда 1'], ['t2', 'Команда 2'], ['vr', 'Выпускающий режиссёр'], ['acc', 'Принятие в BMS'], ['comm', 'Комментатор'], ['tri', 'TRI'], ['comment', 'Комментарий'], ['scomment', 'Комментарий саппорта']];
-  function sortList(list, date) {
-    const sort = sortOf(date);
+  function sortList(list, sort) {
     const k = sort.key, time = k === 'start' || k === 'end';
     const val = m => time ? (C.toMin(m[k]) == null ? -1 : C.toMin(m[k])) : k === 'acc' ? accOf(m).text : k === 'bmsId' ? String(linkOf(m).id || '') : String(m[k] || '').toLowerCase();
     return list.slice().sort((a, b) => {
@@ -266,7 +266,12 @@
     head.append(h('span', { class: 'sc-need', title: 'Минимум ВР при выбранной паузе между матчами' }, `нужно ВР: ${need.count}`),
       h('span', { class: 'muted' }, ` · поставлено: ${assigned.size}`));
     if (assigned.size && assigned.size < need.count) head.append(h('span', { class: 'sc-warn' }, ` · не хватает ${need.count - assigned.size}`));
-    const rows = isCol ? [] : sortList(list, date).map(m => {
+    if (isCol) return h('div', { class: 'sc-day' }, head);
+
+    const khl = [], other = [];
+    for (const m of list) (isKhlPak(m) ? khl : other).push(m);
+    const sort = sortOf(date);
+    const matchRow = m => {
       const conf = C.pcConflicts(m, ST.matches, ST.tol);
       const vrBad = m.vr && C.needsVr(m) && !C.canTake(list.filter(x => x.id !== m.id && x.vr === m.vr), m, cfg());
       const tr = h('tr', { 'data-id': m.id, class: (vrBad ? 'sc-vrbad ' : '') + (m.status === 'отмена' ? 'sc-cancel ' : '') + (conf.length ? 'sc-conf' : ''), title: conf.length ? 'Конфликт ПК с: ' + conf.map(c => `${c.project} ${c.start}–${c.end}`).join('; ') : (vrBad ? 'У этого ВР пересечение или слишком короткая пауза с другим матчем' : null) },
@@ -278,11 +283,20 @@
         cell(m, 'comment', { cls: 'w140' }), cell(m, 'scomment', { cls: 'w140' }),
         h('td', { class: 'sc-pad' }, canEdit() ? h('button', { class: 'sc-del', title: 'Убрать матч', onclick: () => del(m) }, '✕') : null));
       return tr;
+    };
+    const columns = COLS.map(([k, label]) => {
+      if (!other.length) return h('th', { scope: 'col' }, label);
+      const active = sort.key === k;
+      return h('th', { scope: 'col', class: 'sc-sort' + (active ? ' on' : ''),
+        title: 'Сортировать остальные матчи этого дня', onclick: () => setSort(date, k) },
+        label, active ? (sort.dir > 0 ? ' ▲' : ' ▼') : '');
     });
-    if (isCol) return h('div', { class: 'sc-day' }, head);
     return h('div', { class: 'sc-day' }, head, h('div', { class: 'tablewrap' }, h('table', { class: 'sc-table' },
-      h('thead', null, h('tr', null, [...COLS.map(([k, t]) => h('th', { class: 'sc-sort' + (sortOf(date).key === k ? ' on' : ''), title: 'Сортировать только этот день', onclick: () => setSort(date, k) }, t, sortOf(date).key === k ? (sortOf(date).dir > 0 ? ' ▲' : ' ▼') : '')), h('th', { class: 'sc-pad' })])),
-      h('tbody', null, rows))));
+      h('thead', null, h('tr', null, columns, h('th', { class: 'sc-pad' }))),
+      khl.length ? h('tbody', { class: 'sc-khl' },
+        h('tr', { class: 'sc-group' }, h('th', { scope: 'rowgroup', colspan: COLS.length + 1 }, 'КХЛ_ПАК')),
+        sortList(khl, DEF_SORT).map(matchRow)) : null,
+      other.length ? h('tbody', null, sortList(other, sort).map(matchRow)) : null)));
   }
 
   async function del(m) {
