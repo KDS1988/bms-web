@@ -8,7 +8,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { bmsFetch } from './bms.js';
-import { mergeDay } from './studios.js';
+import { mergeDay, repairStudiosNovember28, STUDIOS_REPAIR_DATE } from './studios.js';
 import { storedUserAccess } from './auth.js';
 import { FhmError, fetchCalendarVenueAddress, loadFhmCalendar, verifyFhmKey } from './fhm.js';
 import { readFhmCache, writeFhmCache, deleteFhmCache } from './fhm-cache.js';
@@ -377,17 +377,26 @@ export class BmsSession extends DurableObject {
   async studiosSyncApply(matches, minDate, by) {
     const byDate = new Map();
     for (const m of matches) (byDate.get(m.date) || byDate.set(m.date, []).get(m.date)).push(m);
-    const all = await this.ctx.storage.list({ prefix: 'sm:' });
+    const repairKey = `studiosRepair:${STUDIOS_REPAIR_DATE}`;
+    const [all, repaired] = await Promise.all([
+      this.ctx.storage.list({ prefix: 'sm:' }), this.ctx.storage.get(repairKey),
+    ]);
     const dates = new Set(byDate.keys());
     for (const k of all.keys()) { const d = k.slice(3); if (d >= minDate) dates.add(d); }
     const put = {}, del = [];
-    let added = 0;
+    let added = 0, repair = null;
     for (const d of dates) {
-      const ex = all.get('sm:' + d) || [];
-      const next = mergeDay(ex, byDate.get(d) || []);
+      const key = 'sm:' + d;
+      const ex = all.get(key) || [];
+      const incoming = byDate.get(d) || [];
+      const corrected = d === STUDIOS_REPAIR_DATE && !repaired ? repairStudiosNovember28(ex, incoming) : null;
+      const next = mergeDay(corrected || ex, incoming);
       added += next.filter(n => !ex.some(e => e.id === n.id)).length;
-      if (next.length) put['sm:' + d] = next; else if (ex.length) del.push('sm:' + d);
+      if (corrected) repair = { [key]: next, [repairKey]: true };
+      else if (next.length) put[key] = next;
+      else if (ex.length) del.push(key);
     }
+    if (repair) await this.ctx.storage.put(repair);
     const keys = Object.keys(put);
     for (let i = 0; i < keys.length; i += 100) await this.ctx.storage.put(Object.fromEntries(keys.slice(i, i + 100).map(k => [k, put[k]])));
     for (let i = 0; i < del.length; i += 100) await this.ctx.storage.delete(del.slice(i, i + 100));

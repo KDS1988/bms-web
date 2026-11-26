@@ -34,6 +34,29 @@ export function parseSourceRow(r) {
 
 export function matchKey(m) { return [m.date, m.start, m.end, m.project, m.t1, m.t2].join('|'); }
 
+export const STUDIOS_REPAIR_DATE = '2026-11-28';
+
+/** Разовая сверка строк за 28 ноября, когда источник прислал назначения КХЛ ПАК. */
+export function repairStudiosNovember28(existing, incoming) {
+  const khlIds = new Set([17136, 17137, 17138, 17139]);
+  const khl = incoming.filter(m => m.project === 'КХЛ_ПАК' && khlIds.has(m.eventId) && m.vr);
+  const assigned = new Set(khl.map(m => m.eventId));
+  const extra = m => m.project === 'НСФЛ' && m.studio === 'Калужская' &&
+    m.t1 === 'Ростов-на-Дону' && !m.t2 && m.start === '23:50' && m.end === '02:00';
+  if (assigned.size !== khlIds.size || incoming.some(extra)) return null;
+
+  const khlKeys = new Set(khl.map(matchKey));
+  return existing.map(m => {
+    if (extra(m)) return { ...m, hidden: true, ov: { ...m.ov, hidden: true } };
+    if (!m.manual && khlKeys.has(m.k) && !m.vr && m.ov?.vr) {
+      const ov = { ...m.ov };
+      delete ov.vr;
+      return { ...m, ov };
+    }
+    return m;
+  });
+}
+
 /** Ручная правка/добавление: оставляем только известные поля. */
 export function sanitizePatch(b, full) {
   const out = {};
